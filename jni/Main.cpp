@@ -36,6 +36,10 @@
 #include <ShellUtility.hpp>
 #include <SignalHandler.hpp>
 
+#include "../src/CustomLogic/BypassManager.hpp"
+#include "../src/CustomLogic/FreezeManager.hpp"
+#include "../src/CustomLogic/ResolutionManager.hpp"
+
 GameRegistry game_registry;
 
 void encore_main_daemon(void) {
@@ -51,6 +55,8 @@ void encore_main_daemon(void) {
     DumpsysWindowDisplays window_displays;
 
     std::string active_package;
+    std::string last_game_package = "";
+
     auto last_full_check = std::chrono::steady_clock::now();
 
     bool in_game_session = false;
@@ -60,7 +66,7 @@ void encore_main_daemon(void) {
     bool game_requested_dnd = false;
 
     PIDTracker pid_tracker;
-
+    
     auto GetActiveGame = [&](const std::vector<RecentAppList> &recent_applist, GameRegistry &registry) -> std::string {
         for (const auto &recent : recent_applist) {
             if (!recent.visible) continue;
@@ -69,7 +75,6 @@ void encore_main_daemon(void) {
                 return recent.package_name;
             }
         }
-
         return "";
     };
 
@@ -88,9 +93,9 @@ void encore_main_daemon(void) {
         if (use_settings_method) {
             auto pipe = popen_direct({"/system/bin/cmd", "settings", "get", "global", "low_power"});
 
-            if (pipe.stream) {
+            if (pipe) {
                 char buffer[16];
-                if (fgets(buffer, sizeof(buffer), pipe.stream)) {
+                if (fgets(buffer, sizeof(buffer), pipe.get())) {
                     std::string result = buffer;
                     result.erase(
                         std::remove_if(result.begin(), result.end(), [](unsigned char c) { return std::isspace(c); }),
@@ -101,7 +106,6 @@ void encore_main_daemon(void) {
                     if (result == "0") return false;
                 }
             }
-
             use_settings_method = false;
         }
 
@@ -152,7 +156,6 @@ void encore_main_daemon(void) {
         }
 
         // Check if active game is still in recent app list when in game session
-        // Fix profile stuck, especially in Mobile Legends: Bang Bang
         if (in_game_session && !active_package.empty() && do_full_check) {
             if (!IsGameStillActive(window_displays.recent_app, active_package)) [[unlikely]] {
                 goto game_exited;
@@ -163,6 +166,14 @@ void encore_main_daemon(void) {
         if (in_game_session && !pid_tracker.is_valid()) [[unlikely]] {
         game_exited:
             LOGI("Game {} exited", active_package);
+            if (!last_game_package.empty()) {
+                LOGI("[CustomLogic] Exiting Game Mode (Crash/Exit): %s", last_game_package.c_str());
+                ResolutionManager::GetInstance().ResetGameMode(last_game_package);
+                FreezeManager::GetInstance().ApplyFreeze(false);
+                BypassManager::GetInstance().SetBypass(false);
+                last_game_package = "";
+            }
+
             active_package.clear();
             pid_tracker.invalidate();
             in_game_session = false;
@@ -198,11 +209,32 @@ void encore_main_daemon(void) {
 
         // Profile selection logic
         if (!active_package.empty() && window_displays.screen_awake) {
+            if (active_package != last_game_package) {
+                LOGI("[CustomLogic] Entering Game Mode for: %s", active_package.c_str());
+                
+                // 1. Downscale
+                ResolutionManager::GetInstance().ApplyGameMode(active_package);
+                // 2. Freeze App
+                FreezeManager::GetInstance().ApplyFreeze(true);
+                // 3. Bypass Charging
+                BypassManager::GetInstance().SetBypass(true);
+
+                last_game_package = active_package;
+            }
+
             if (!need_profile_checkup && cur_mode == PERFORMANCE_PROFILE) goto take_me_to_the_bed;
 
             auto active_game = game_registry.find_game_ptr(active_package);
             if (!active_game) {
                 LOGI("Game {} are no longer listed in registry", active_package);
+                if (!last_game_package.empty()) {
+                    LOGI("[CustomLogic] Game delisted, resetting mode");
+                    ResolutionManager::GetInstance().ResetGameMode(last_game_package);
+                    FreezeManager::GetInstance().ApplyFreeze(false);
+                    BypassManager::GetInstance().SetBypass(false);
+                    last_game_package = "";
+                }
+
                 active_package.clear();
                 pid_tracker.invalidate();
                 in_game_session = false;
@@ -235,6 +267,14 @@ void encore_main_daemon(void) {
                 set_do_not_disturb(false);
             }
         } else if (battery_saver_state) {
+            if (!last_game_package.empty()) {
+                LOGI("[CustomLogic] Game minimized/closed (Battery Saver)");
+                ResolutionManager::GetInstance().ResetGameMode(last_game_package);
+                FreezeManager::GetInstance().ApplyFreeze(false);
+                BypassManager::GetInstance().SetBypass(false);
+                last_game_package = "";
+            }
+
             if (cur_mode == POWERSAVE_PROFILE) goto take_me_to_the_bed;
 
             cur_mode = POWERSAVE_PROFILE;
@@ -247,6 +287,14 @@ void encore_main_daemon(void) {
                 game_requested_dnd = false;
             }
         } else {
+            if (!last_game_package.empty()) {
+                LOGI("[CustomLogic] Game minimized/closed (Balance)");
+                ResolutionManager::GetInstance().ResetGameMode(last_game_package);
+                FreezeManager::GetInstance().ApplyFreeze(false);
+                BypassManager::GetInstance().SetBypass(false);
+                last_game_package = "";
+            }
+
             if (cur_mode == BALANCE_PROFILE) goto take_me_to_the_bed;
 
             cur_mode = BALANCE_PROFILE;
@@ -340,6 +388,11 @@ int run_daemon() {
         NotifyFatalError("Failed to initialize file watcher");
         return EXIT_FAILURE;
     }
+
+    LOGI("Initializing Custom Logic Managers...");
+    BypassManager::GetInstance().Init();
+    FreezeManager::GetInstance().LoadConfig("/data/adb/modules/encore/core/freeze.txt"); 
+    ResolutionManager::GetInstance().LoadGameMap("/data/adb/modules/encore/core/games.txt"); 
 
     LOGI("Encore Tweaks daemon started");
     SetModule_DescriptionStatus("\xF0\x9F\x98\x8B Tweaks applied successfully");
