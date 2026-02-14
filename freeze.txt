@@ -1,0 +1,11 @@
+jp.naver.line.android
+com.whatsapp
+com.facebook.katana
+com.facebook.lite
+com.instagram.lite
+uz.unnarsx.cherrygram
+com.radolyn.ayugram
+com.discord
+com.google.android.gm
+com.brave.browser
+com.transsion.videocallenhancer
