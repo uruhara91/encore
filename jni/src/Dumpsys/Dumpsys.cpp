@@ -26,21 +26,18 @@ namespace Dumpsys {
 void WindowDisplays(DumpsysWindowDisplays &result) {
     result.screen_awake = false;
     result.recent_app.clear();
+    result.recent_app.reserve(10); 
 
-    // Gunakan 'cmd' daripada 'dumpsys' jika memungkinkan, biasanya sedikit lebih cepat di beberapa ROM
     auto pipe = popen_direct({"/system/bin/dumpsys", "window", "visible-apps"});
+    if (!pipe.stream) return;
 
-    if (!pipe.stream) {
-        // Fallback or silent fail implementation
-        return;
-    }
-
-    char buffer[2048]; // Buffer diperbesar sedikit agar aman
+    char buffer[4096]; 
+    
     bool found_task_section = false;
     bool exited_task_section = false;
     bool found_awake = false;
     
-    // Cache string views untuk comparison (hindari konstruksi string berulang)
+    // String views (Zero-copy constants)
     constexpr std::string_view KEY_AWAKE = "mAwake=";
     constexpr std::string_view KEY_AWAKE_TRUE = "mAwake=true";
     constexpr std::string_view KEY_TASK_START = "Application tokens in top down Z order:";
@@ -50,29 +47,22 @@ void WindowDisplays(DumpsysWindowDisplays &result) {
     constexpr std::string_view KEY_TYPE_STANDARD = "type=standard";
 
     std::string_view current_task_line_view;
-    char saved_task_line[1024]; // Buffer statis untuk menyimpan baris task terakhir
+    char saved_task_line[1024];
 
     while (fgets(buffer, sizeof(buffer), pipe.stream) != nullptr) {
-        // Zero-copy string view dari buffer saat ini
         std::string_view line(buffer);
-
-        // Trim newline di akhir (optional, tapi good practice)
-        if (!line.empty() && line.back() == '\n') {
-            line.remove_suffix(1);
-        }
+        if (!line.empty() && line.back() == '\n') line.remove_suffix(1);
 
         if (exited_task_section && found_awake) break;
 
-        // 1. Cek Screen Awake
-        if (!found_awake) {
-            if (line.find(KEY_AWAKE) != std::string_view::npos) {
-                result.screen_awake = line.find(KEY_AWAKE_TRUE) != std::string_view::npos;
-                found_awake = true;
-                continue;
-            }
+        // 1. Check Screen Awake
+        if (!found_awake && line.find(KEY_AWAKE) != std::string_view::npos) {
+            result.screen_awake = line.find(KEY_AWAKE_TRUE) != std::string_view::npos;
+            found_awake = true;
+            continue;
         }
 
-        // 2. Cari Section Task
+        // 2. Find Task Section
         if (!found_task_section) {
             if (line.find(KEY_TASK_START) != std::string_view::npos) {
                 found_task_section = true;
@@ -87,39 +77,31 @@ void WindowDisplays(DumpsysWindowDisplays &result) {
             continue;
         }
 
-        // 3. Logic Parsing Task & Activity
-        // Cek apakah ini baris Task
+        // 3. Parse Tasks
         if (line.find(KEY_TASK_HEADER) != std::string_view::npos) {
             if (line.find(KEY_TYPE_STANDARD) != std::string_view::npos) {
-                // Salin ke buffer statis karena 'buffer' utama akan tertimpa di iterasi berikutnya
                 size_t copy_len = std::min(line.size(), sizeof(saved_task_line) - 1);
                 memcpy(saved_task_line, line.data(), copy_len);
                 saved_task_line[copy_len] = '\0';
                 current_task_line_view = std::string_view(saved_task_line, copy_len);
             } else {
-                current_task_line_view = {}; // Reset jika bukan standard task
+                current_task_line_view = {};
             }
         }
-        // Cek Activity Record (anak dari Task)
         else if (!current_task_line_view.empty() && line.find(KEY_ACT_RECORD) != std::string_view::npos) {
             RecentAppList app;
-            
-            // Cek visibility dari PARENT TASK (bukan activity-nya, sesuai logika lama)
             app.visible = current_task_line_view.find(KEY_VISIBLE_TRUE) != std::string_view::npos;
 
-            // Parsing Package Name: * ActivityRecord{HEX u0 com.package/
             size_t u0_pos = line.find(" u0 ");
             if (u0_pos != std::string_view::npos) {
                 size_t pkg_start = u0_pos + 4;
                 size_t slash_pos = line.find('/', pkg_start);
                 
                 if (slash_pos != std::string_view::npos) {
-                    // Konstruksi std::string hanya saat benar-benar ketemu (Allocation minimized)
                     app.package_name = std::string(line.substr(pkg_start, slash_pos - pkg_start));
                     result.recent_app.push_back(std::move(app));
                 }
             }
-            // Setelah diproses, reset parent task view agar tidak duplikat logic
             current_task_line_view = {}; 
         }
     }
@@ -203,7 +185,6 @@ void Power(DumpsysPower &result) {
 }
 
 pid_t GetAppPID(const std::string &package_name) {
-    // Implementasi scan /proc yang sudah saya berikan sebelumnya (ini sudah optimal)
     DIR* dir = opendir("/proc");
     if (!dir) return 0;
 

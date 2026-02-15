@@ -16,7 +16,6 @@
 
 #include <cstdio>
 #include <cstdlib>
-#include <iostream>
 #include <thread>
 #include <vector>
 #include <string_view>
@@ -39,13 +38,13 @@
 #include <ShellUtility.hpp>
 #include <SignalHandler.hpp>
 
-// Custom Logic Managers
 #include "../src/CustomLogic/BypassManager.hpp"
 #include "../src/CustomLogic/ResolutionManager.hpp"
 
 GameRegistry game_registry;
 
-// Helper: Set CPU Governor (Native & Fast)
+// --- HELPERS ---
+
 void SetCpuGovernor(const std::string& governor) {
     DIR* dir = opendir("/sys/devices/system/cpu");
     if (!dir) return;
@@ -54,7 +53,6 @@ void SetCpuGovernor(const std::string& governor) {
     char path[128];
     
     while ((ent = readdir(dir)) != NULL) {
-        // Cari folder cpu[0-9]
         if (strncmp(ent->d_name, "cpu", 3) == 0 && isdigit(ent->d_name[3])) {
             snprintf(path, sizeof(path), "/sys/devices/system/cpu/%s/cpufreq/scaling_governor", ent->d_name);
             int fd = open(path, O_WRONLY | O_CLOEXEC);
@@ -96,6 +94,7 @@ bool CheckBatterySaver() {
 void encore_main_daemon(void) {
     constexpr auto INGAME_LOOP_INTERVAL = std::chrono::milliseconds(1500);
     constexpr auto NORMAL_LOOP_INTERVAL = std::chrono::seconds(5);
+    const EncoreProfileMode SCREEN_OFF_PROFILE = static_cast<EncoreProfileMode>(99);
 
     EncoreProfileMode cur_mode = PERFCOMMON;
     DumpsysWindowDisplays window_displays;
@@ -103,13 +102,13 @@ void encore_main_daemon(void) {
     std::string active_package;
     std::string last_game_package = "";
     auto last_full_check = std::chrono::steady_clock::now();
+    
     bool in_game_session = false;
     bool battery_saver_state = false; 
     PIDTracker pid_tracker;
+    
+    // Counter init 100 agar langsung cek saat boot
     int idle_battery_check_counter = 100;
-
-    // Definisikan Profile ID khusus untuk Screen Off (gunakan casting agar tidak perlu edit enum header)
-    const EncoreProfileMode SCREEN_OFF_PROFILE = static_cast<EncoreProfileMode>(99);
 
     auto GetActiveGame = [&](const std::vector<RecentAppList> &app_list) -> std::string {
         for (const auto &app : app_list) {
@@ -124,6 +123,7 @@ void encore_main_daemon(void) {
     pthread_setname_np(pthread_self(), "EncoreLoop");
 
     while (true) {
+        // Fast Check: Module Update / Disable
         if (access(MODULE_UPDATE, F_OK) == 0) [[unlikely]] {
             LOGI("Module update detected, exiting...");
             break;
@@ -131,7 +131,7 @@ void encore_main_daemon(void) {
 
         auto now = std::chrono::steady_clock::now();
         
-        // 1. WINDOW SCAN (Cek Layar & App)
+        // 1. WINDOW SCAN
         if ((now - last_full_check) >= (in_game_session ? INGAME_LOOP_INTERVAL : NORMAL_LOOP_INTERVAL)) {
             try {
                 Dumpsys::WindowDisplays(window_displays);
@@ -145,39 +145,39 @@ void encore_main_daemon(void) {
             continue;
         }
 
-        // ==========================================
-        // LOGIC BARU: SCREEN OFF (Deep Sleep)
-        // ==========================================
+        // 2. SCREEN OFF LOGIC (Deep Sleep)
         if (!window_displays.screen_awake) {
             if (cur_mode != SCREEN_OFF_PROFILE) {
-                LOGI("Screen OFF detected -> Force Powersave Governor");
-                SetCpuGovernor("powersave"); // Set ke governor paling irit
+                LOGI("Screen OFF -> Force Powersave");
+                SetCpuGovernor("powersave"); 
                 cur_mode = SCREEN_OFF_PROFILE;
             }
-            // Skip semua logic game & baterai. Langsung tidur sampai loop berikutnya.
+            // Sleep panjang biar masuk Doze
             std::this_thread::sleep_for(NORMAL_LOOP_INTERVAL);
+            
+            // WAKEUP SIGNAL: Saat bangun, paksa cek profile segera
+            idle_battery_check_counter = 100; 
             continue;
         }
 
-        // Jika layar nyala kembali, cur_mode akan otomatis berubah di logic Gaming atau Idle di bawah ini
-        // karena cur_mode != PERFORMANCE/BALANCE.
-
-        // 2. Logic Validasi Game
+        // 3. GAME VALIDATION (Jika sedang main)
         if (in_game_session && !active_package.empty()) {
              if (!pid_tracker.is_valid()) {
                 LOGI("Game PID dead: %s", active_package.c_str());
                 goto handle_game_exit;
              }
+             
              bool still_visible = false;
              for(const auto& app : window_displays.recent_app) {
                  if(app.package_name == active_package) { still_visible = true; break; }
              }
              if (!still_visible) {
-                LOGI("Game no longer visible: %s", active_package.c_str());
+                LOGI("Game hidden: %s", active_package.c_str());
                 goto handle_game_exit;
              }
         }
         
+        // 4. DETECT NEW GAME
         if (active_package.empty()) {
             active_package = GetActiveGame(window_displays.recent_app);
             if (!active_package.empty()) {
@@ -185,17 +185,19 @@ void encore_main_daemon(void) {
             }
         }
 
-        // ==========================================
+        // ===========================
         // STATE: GAMING
-        // ==========================================
+        // ===========================
         if (!active_package.empty() && window_displays.screen_awake) {
+            // New Game Session
             if (active_package != last_game_package) {
-                LOGI("Entering Game Session: %s", active_package.c_str());
+                LOGI("Enter Game: %s", active_package.c_str());
                 ResolutionManager::GetInstance().ApplyGameMode(active_package);
                 BypassManager::GetInstance().SetBypass(true);
                 last_game_package = active_package;
             }
 
+            // Enforce Performance Profile
             if (cur_mode != PERFORMANCE_PROFILE) {
                 pid_t game_pid = Dumpsys::GetAppPID(active_package);
                 if (game_pid > 0) {
@@ -205,18 +207,19 @@ void encore_main_daemon(void) {
                     
                     apply_performance_profile(lite_mode, active_package, game_pid);
                     pid_tracker.set_pid(game_pid);
-                    LOGI("Performance Profile Applied (PID: %d)", game_pid);
+                    LOGI("Profile: Performance (PID: %d)", game_pid);
                 }
             }
+            // Skip logic idle/battery
             continue; 
         }
 
-        // ==========================================
-        // STATE: IDLE
-        // ==========================================
+        // ===========================
+        // STATE: IDLE / DAILY
+        // ===========================
         if (!last_game_package.empty()) {
         handle_game_exit:
-            LOGI("Exiting Game Session: %s", last_game_package.c_str());
+            LOGI("Exit Game: %s", last_game_package.c_str());
             ResolutionManager::GetInstance().ResetGameMode(last_game_package);
             BypassManager::GetInstance().SetBypass(false);
             
@@ -224,25 +227,25 @@ void encore_main_daemon(void) {
             active_package.clear();
             pid_tracker.invalidate();
             in_game_session = false;
-            idle_battery_check_counter = 100; // Force cek profile segera
+            
+            // Force cek ulang profile segera setelah exit game
+            idle_battery_check_counter = 100; 
         }
 
-        // Battery / Profile Management (Jarang-Jarang)
+        // Battery & Profile Check (Throttled: Cek tiap ~30 detik atau saat Wakeup/Exit Game)
         if (++idle_battery_check_counter >= 6) {
             battery_saver_state = CheckBatterySaver();
             idle_battery_check_counter = 0;
             
-            // Logic Restore Profile (Penting saat layar baru nyala lagi)
             if (battery_saver_state) {
                 if (cur_mode != POWERSAVE_PROFILE) {
-                    LOGI("Switching to PowerSave Profile (Battery Saver ON)");
+                    LOGI("Profile: PowerSave (Battery Saver ON)");
                     cur_mode = POWERSAVE_PROFILE;
                     apply_powersave_profile();
                 }
             } else {
-                // Ini yang akan terpanggil saat layar nyala kembali (Wake Up)
                 if (cur_mode != BALANCE_PROFILE) {
-                    LOGI("Switching to Balance Profile (Normal)");
+                    LOGI("Profile: Balance");
                     cur_mode = BALANCE_PROFILE;
                     apply_balance_profile();
                 }
