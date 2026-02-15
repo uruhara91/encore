@@ -1,14 +1,15 @@
 #include "BypassManager.hpp"
-#include "EncoreLog.hpp" // <-- WAJIB: Untuk LOGI/LOGE/LOGD
-#include <fstream>       // <-- WAJIB: Untuk std::ofstream
-#include <filesystem>    // C++17 filesystem
+#include "EncoreLog.hpp"
+#include <fstream>
+#include <unistd.h>
 
 void BypassManager::Init() {
-    if (std::filesystem::exists(PATH_CMD)) {
+    // Gunakan access() gaya C klasik yang lebih reliable di Android NDK daripada std::filesystem
+    if (access(PATH_CMD, F_OK) == 0) {
         targetPath = PATH_CMD;
         mode = 0;
         LOGI("BypassManager: Detected MTK current_cmd interface");
-    } else if (std::filesystem::exists(PATH_EN)) {
+    } else if (access(PATH_EN, F_OK) == 0) {
         targetPath = PATH_EN;
         mode = 1;
         LOGI("BypassManager: Detected MTK en_power_path interface");
@@ -27,7 +28,6 @@ void BypassManager::SetBypass(bool enable) {
     }
 
     if (mode == 0) {
-        // Format: "0 1" (bypass on/charging off), "0 0" (bypass off/charging on)
         file << (enable ? "0 1" : "0 0");
     } else {
         file << (enable ? "1" : "0"); 

@@ -2,7 +2,7 @@
 #include "EncoreLog.hpp"
 #include <fstream>
 #include <sstream>
-#include <algorithm> // Wajib include ini untuk trimming
+#include <algorithm>
 #include <stdlib.h>
 
 void ResolutionManager::LoadGameMap(const std::string& configPath) {
@@ -10,9 +10,7 @@ void ResolutionManager::LoadGameMap(const std::string& configPath) {
     std::ifstream file(configPath);
     std::string line;
     
-    // Format: com.mobile.legends:0.7
     while (std::getline(file, line)) {
-        // 1. Trim CR (\r) dan newline dari baris mentah (PENTING!)
         line.erase(std::remove(line.begin(), line.end(), '\r'), line.end());
         line.erase(std::remove(line.begin(), line.end(), '\n'), line.end());
 
@@ -29,10 +27,7 @@ void ResolutionManager::LoadGameMap(const std::string& configPath) {
         if (seglist.size() == 2) {
             std::string pkg = seglist[0];
             std::string ratio = seglist[1];
-
-            // Bersihkan spasi tidak sengaja (misal: "0.7 ")
             ratio.erase(std::remove(ratio.begin(), ratio.end(), ' '), ratio.end());
-
             gameRatios[pkg] = ratio;
         }
     }
@@ -40,9 +35,9 @@ void ResolutionManager::LoadGameMap(const std::string& configPath) {
 }
 
 void ResolutionManager::ApplyGameMode(const std::string& packageName) {
-    if (gameRatios.find(packageName) != gameRatios.end()) {
+    // REFACTOR C++20/23: Menggunakan .contains()
+    if (gameRatios.contains(packageName)) {
         std::string ratio = gameRatios[packageName];
-        // Gunakan full path /system/bin/cmd agar lebih reliable
         std::string cmd = "/system/bin/cmd game mode set --downscale " + ratio + " " + packageName;
         ExecuteCmd(cmd);
         LOGI("ResolutionManager: Applied Downscale %s for %s", ratio.c_str(), packageName.c_str());
@@ -50,17 +45,14 @@ void ResolutionManager::ApplyGameMode(const std::string& packageName) {
 }
 
 void ResolutionManager::ResetGameMode(const std::string& packageName) {
-    // Reset ke standard saat keluar game
     std::string cmd = "/system/bin/cmd game mode set standard " + packageName;
     ExecuteCmd(cmd);
     LOGD("ResolutionManager: Reset to Standard for %s", packageName.c_str());
 }
 
 void ResolutionManager::ExecuteCmd(const std::string& cmd) {
-    // Menggunakan system() kadang terblokir environment, tapi sebagai root daemon biasanya aman.
-    // Opsi debug: redirect stderr ke logcat jika command gagal, tapi system() standar sudah cukup.
     int ret = system(cmd.c_str());
     if (ret != 0) {
-        LOGE("ResolutionManager: Command failed with code %d: %s", ret, cmd.c_str());
+        LOGE("ResolutionManager: Command failed: %s", cmd.c_str());
     }
 }
