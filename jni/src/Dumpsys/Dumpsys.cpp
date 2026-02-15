@@ -15,6 +15,10 @@
  */
 
 #include "Dumpsys.hpp"
+#include <dirent.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <cstring>
 
 namespace Dumpsys {
 
