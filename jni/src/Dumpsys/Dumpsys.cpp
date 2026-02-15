@@ -188,60 +188,41 @@ void Power(DumpsysPower &result) {
 }
 
 pid_t GetAppPID(const std::string &package_name) {
-    auto pipe = popen_direct({"/system/bin/dumpsys", "activity", "top"});
+    DIR* dir = opendir("/proc");
+    if (!dir) return 0;
 
-    if (!pipe.stream) {
-        std::string error_msg = "popen failed: ";
-        error_msg += strerror(errno);
-        throw std::runtime_error(error_msg);
-    }
+    struct dirent* ent;
+    pid_t found_pid = 0;
+    char cmdline_path[64];
+    char cmdline_buf[512];
 
-    char buffer[1024];
-    bool found_package = false;
-    int pid = 0;
+    while ((ent = readdir(dir)) != NULL) {
+        if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
 
-    while (fgets(buffer, sizeof(buffer), pipe.stream) != nullptr) {
-        // Found our package, no need to continue
-        if (found_package) break;
+        snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%s/cmdline", ent->d_name);
 
-        std::string line(buffer);
+        int fd = open(cmdline_path, O_RDONLY | O_CLOEXEC);
+        if (fd >= 0) {
+            ssize_t len = read(fd, cmdline_buf, sizeof(cmdline_buf) - 1);
+            close(fd);
 
-        // Remove trailing newline
-        if (!line.empty() && line.back() == '\n') {
-            line.pop_back();
-        }
-
-        // Look for ACTIVITY line containing our package
-        if (line.contains("ACTIVITY") && line.contains(package_name)) {
-            found_package = true;
-
-            // Extract PID from the line
-            // Format: ACTIVITY tw.nekomimi.nekogram/org.telegram.messenger.NoxIcon ac9376b pid=32288
-            size_t pid_pos = line.find("pid=");
-            if (pid_pos != std::string::npos) {
-                std::string pid_str = line.substr(pid_pos + 4); // Skip "pid="
-
-                // Remove any trailing non-digit characters
-                pid_str = pid_str.substr(0, pid_str.find_first_not_of("0123456789"));
-
-                try {
-                    pid = std::stoi(pid_str);
-                } catch (const std::exception &e) {
-                    throw std::runtime_error("failed to parse PID: " + std::string(e.what()));
+            if (len > 0) {
+                cmdline_buf[len] = 0; // Null terminate
+                
+                if (strcmp(cmdline_buf, package_name.c_str()) == 0) {
+                    found_pid = atoi(ent->d_name);
+                    break;
                 }
             }
         }
     }
+    closedir(dir);
 
-    if (!found_package) {
-        throw std::runtime_error("unable to find " + package_name + "package in activity top");
+    if (found_pid == 0) {
+        return 0; 
     }
 
-    if (pid == 0) {
-        throw std::runtime_error("unable to extract PID for " + package_name);
-    }
-
-    return pid;
+    return found_pid;
 }
 
 } // namespace Dumpsys
