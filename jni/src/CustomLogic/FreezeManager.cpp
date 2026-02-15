@@ -96,17 +96,24 @@ bool FreezeManager::ReadFileToString(const std::string& path, std::string& outCo
     int fd = open(path.c_str(), O_RDONLY | O_CLOEXEC);
     if (fd == -1) return false;
 
-    // Ambil ukuran file untuk reservasi string
+    // Ambil ukuran file
     struct stat sb;
     if (fstat(fd, &sb) == -1) { close(fd); return false; }
     
-    outContent.resize(sb.st_size);
+    // FIX: Cast off_t (signed) ke size_t (unsigned) agar kompatibel
+    size_t fileSize = static_cast<size_t>(sb.st_size);
+    
+    outContent.resize(fileSize);
     
     // ReadAll loop
     size_t totalRead = 0;
-    while (totalRead < sb.st_size) {
-        ssize_t bytes = read(fd, &outContent[totalRead], sb.st_size - totalRead);
+    while (totalRead < fileSize) {
+        // read() mengharapkan size_t untuk jumlah byte
+        ssize_t bytes = read(fd, &outContent[totalRead], fileSize - totalRead);
+        
+        // Handle error (-1) atau EOF (0)
         if (bytes <= 0) break;
+        
         totalRead += bytes;
     }
     close(fd);
