@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include <unordered_map>
 
 class ResolutionManager {
 public:
@@ -17,14 +18,12 @@ public:
 private:
     ResolutionManager() = default;
     
-    // Gunakan vector pair untuk iterasi cepat jika jumlah game sedikit (<100)
-    // atau tetap std::map jika butuh lookup cepat. 
-    // Untuk optimasi memori dan alokasi, vector<pair> lebih ramah cache processor daripada map node.
     std::vector<std::pair<std::string, std::string>> gameRatios;
     
-    // Helper untuk mencari ratio di vector
-    std::string GetRatio(const std::string& pkg);
+    // CACHE: Menyimpan status package yang sudah di-apply
+    // Key: PackageName, Value: RatioApplied
+    std::unordered_map<std::string, std::string> appliedCache; 
 
-    // Eksekusi langsung tanpa shell
+    std::string GetRatio(const std::string& pkg);
     void ExecuteCmdDirect(const std::vector<const char*>& args);
 };

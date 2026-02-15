@@ -18,8 +18,11 @@
 #include <cstdlib>
 #include <iostream>
 #include <thread>
-#include <unordered_map>
 #include <vector>
+#include <string_view>
+#include <fcntl.h>
+#include <unistd.h>
+#include <dirent.h> 
 
 #include <DeviceMitigationStore.hpp>
 #include <Dumpsys.hpp>
@@ -36,12 +39,51 @@
 #include <ShellUtility.hpp>
 #include <SignalHandler.hpp>
 
+// Custom Logic Managers
 #include "../src/CustomLogic/BypassManager.hpp"
 #include "../src/CustomLogic/ResolutionManager.hpp"
 
 GameRegistry game_registry;
 
+// Helper: Set CPU Governor (Native & Fast)
+void SetCpuGovernor(const std::string& governor) {
+    DIR* dir = opendir("/sys/devices/system/cpu");
+    if (!dir) return;
+    
+    struct dirent* ent;
+    char path[128];
+    
+    while ((ent = readdir(dir)) != NULL) {
+        // Cari folder cpu[0-9]
+        if (strncmp(ent->d_name, "cpu", 3) == 0 && isdigit(ent->d_name[3])) {
+            snprintf(path, sizeof(path), "/sys/devices/system/cpu/%s/cpufreq/scaling_governor", ent->d_name);
+            int fd = open(path, O_WRONLY | O_CLOEXEC);
+            if (fd >= 0) {
+                write(fd, governor.c_str(), governor.length());
+                close(fd);
+            }
+        }
+    }
+    closedir(dir);
+}
+
+bool IsCharging() {
+    int fd = open("/sys/class/power_supply/battery/status", O_RDONLY | O_CLOEXEC);
+    if (fd == -1) return false;
+
+    char buf[16];
+    ssize_t len = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+
+    if (len > 0) {
+        buf[len] = 0;
+        if (strcasestr(buf, "Charging") || strcasestr(buf, "Full")) return true;
+    }
+    return false;
+}
+
 bool CheckBatterySaver() {
+    if (IsCharging()) return false;
     try {
         DumpsysPower dumpsys_power;
         Dumpsys::Power(dumpsys_power);
@@ -52,38 +94,30 @@ bool CheckBatterySaver() {
 }
 
 void encore_main_daemon(void) {
-    constexpr static auto INGAME_LOOP_INTERVAL = std::chrono::milliseconds(1000);
-    constexpr static auto NORMAL_LOOP_INTERVAL = std::chrono::seconds(5);
+    constexpr auto INGAME_LOOP_INTERVAL = std::chrono::milliseconds(1500);
+    constexpr auto NORMAL_LOOP_INTERVAL = std::chrono::seconds(5);
 
     EncoreProfileMode cur_mode = PERFCOMMON;
     DumpsysWindowDisplays window_displays;
 
     std::string active_package;
     std::string last_game_package = "";
-
     auto last_full_check = std::chrono::steady_clock::now();
-
     bool in_game_session = false;
-    bool battery_saver_state = false;
-    bool game_requested_dnd = false;
-
+    bool battery_saver_state = false; 
     PIDTracker pid_tracker;
-    
-    auto GetActiveGame = [&](const std::vector<RecentAppList> &recent_applist) -> std::string {
-        for (const auto &recent : recent_applist) {
-            if (!recent.visible) continue;
-            if (game_registry.is_game_registered(recent.package_name)) {
-                return recent.package_name;
+    int idle_battery_check_counter = 100;
+
+    // Definisikan Profile ID khusus untuk Screen Off (gunakan casting agar tidak perlu edit enum header)
+    const EncoreProfileMode SCREEN_OFF_PROFILE = static_cast<EncoreProfileMode>(99);
+
+    auto GetActiveGame = [&](const std::vector<RecentAppList> &app_list) -> std::string {
+        for (const auto &app : app_list) {
+            if (app.visible && game_registry.is_game_registered(app.package_name)) {
+                return app.package_name;
             }
         }
         return "";
-    };
-
-    auto IsGameStillActive = [&](const std::vector<RecentAppList> &recent_applist, const std::string &package_name) -> bool {
-        for (const auto &recent : recent_applist) {
-            if (recent.package_name == package_name) return true;
-        }
-        return false;
     };
 
     run_perfcommon();
@@ -91,132 +125,129 @@ void encore_main_daemon(void) {
 
     while (true) {
         if (access(MODULE_UPDATE, F_OK) == 0) [[unlikely]] {
-            LOGI("Module update detected, exiting");
-            notify("Please reboot your device to complete module update.");
+            LOGI("Module update detected, exiting...");
             break;
         }
 
         auto now = std::chrono::steady_clock::now();
-        bool should_scan_window = !in_game_session || (now - last_full_check) >= INGAME_LOOP_INTERVAL;
-
-        if (should_scan_window) {
+        
+        // 1. WINDOW SCAN (Cek Layar & App)
+        if ((now - last_full_check) >= (in_game_session ? INGAME_LOOP_INTERVAL : NORMAL_LOOP_INTERVAL)) {
             try {
                 Dumpsys::WindowDisplays(window_displays);
                 last_full_check = now;
-            } catch (const std::runtime_error &e) {
-                LOGE_TAG("Dumpsys", "Window scan failed: {}", e.what());
+            } catch (...) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
                 continue;
             }
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            continue;
         }
 
-        // Logic Exit Game
+        // ==========================================
+        // LOGIC BARU: SCREEN OFF (Deep Sleep)
+        // ==========================================
+        if (!window_displays.screen_awake) {
+            if (cur_mode != SCREEN_OFF_PROFILE) {
+                LOGI("Screen OFF detected -> Force Powersave Governor");
+                SetCpuGovernor("powersave"); // Set ke governor paling irit
+                cur_mode = SCREEN_OFF_PROFILE;
+            }
+            // Skip semua logic game & baterai. Langsung tidur sampai loop berikutnya.
+            std::this_thread::sleep_for(NORMAL_LOOP_INTERVAL);
+            continue;
+        }
+
+        // Jika layar nyala kembali, cur_mode akan otomatis berubah di logic Gaming atau Idle di bawah ini
+        // karena cur_mode != PERFORMANCE/BALANCE.
+
+        // 2. Logic Validasi Game
         if (in_game_session && !active_package.empty()) {
-             if (!IsGameStillActive(window_displays.recent_app, active_package)) {
-                LOGI("Game %s exited (not in visible list)", active_package.c_str());
+             if (!pid_tracker.is_valid()) {
+                LOGI("Game PID dead: %s", active_package.c_str());
                 goto handle_game_exit;
              }
-             
-             // PID check is fast (via kill 0 or parsing /proc)
-             if (!pid_tracker.is_valid()) {
-                LOGI("Game %s PID dead", active_package.c_str());
+             bool still_visible = false;
+             for(const auto& app : window_displays.recent_app) {
+                 if(app.package_name == active_package) { still_visible = true; break; }
+             }
+             if (!still_visible) {
+                LOGI("Game no longer visible: %s", active_package.c_str());
                 goto handle_game_exit;
              }
         }
         
-        // Logic Enter Game / Switch Game
         if (active_package.empty()) {
             active_package = GetActiveGame(window_displays.recent_app);
             if (!active_package.empty()) {
                 in_game_session = true;
-                battery_saver_state = CheckBatterySaver();
             }
-        } else if (!in_game_session) {
-             // Recovery state
-             in_game_session = true;
         }
 
-        // 1. STATE: GAMING
+        // ==========================================
+        // STATE: GAMING
+        // ==========================================
         if (!active_package.empty() && window_displays.screen_awake) {
-            // Jika pindah game atau baru masuk
             if (active_package != last_game_package) {
-                LOGI("[Encore] Entering Game Mode: %s", active_package.c_str());
-                
-                // APPLY FEATURES
+                LOGI("Entering Game Session: %s", active_package.c_str());
                 ResolutionManager::GetInstance().ApplyGameMode(active_package);
                 BypassManager::GetInstance().SetBypass(true);
-                // FreezeManager REMOVED
-
                 last_game_package = active_package;
             }
 
-            // Apply Profile (Performance)
             if (cur_mode != PERFORMANCE_PROFILE) {
                 pid_t game_pid = Dumpsys::GetAppPID(active_package);
-                
                 if (game_pid > 0) {
-                    LOGI("Applying Performance Profile -> PID: %d", game_pid);
                     cur_mode = PERFORMANCE_PROFILE;
-                    
                     auto active_game = game_registry.find_game_ptr(active_package);
                     bool lite_mode = (active_game && active_game->lite_mode) || config_store.get_preferences().enforce_lite_mode;
                     
                     apply_performance_profile(lite_mode, active_package, game_pid);
                     pid_tracker.set_pid(game_pid);
-                    
-                    if (active_game && active_game->enable_dnd) {
-                        game_requested_dnd = true;
-                        set_do_not_disturb(true);
-                    }
+                    LOGI("Performance Profile Applied (PID: %d)", game_pid);
                 }
             }
-            
-            // Sleep Game Mode
-            std::this_thread::sleep_for(INGAME_LOOP_INTERVAL);
-            continue;
+            continue; 
         }
 
-        // 2. STATE: NOT GAMING (Idle/Daily)
-        
+        // ==========================================
+        // STATE: IDLE
+        // ==========================================
         if (!last_game_package.empty()) {
         handle_game_exit:
-            LOGI("[Encore] Exiting Game Mode: %s", last_game_package.c_str());
+            LOGI("Exiting Game Session: %s", last_game_package.c_str());
             ResolutionManager::GetInstance().ResetGameMode(last_game_package);
             BypassManager::GetInstance().SetBypass(false);
-
-            if (game_requested_dnd) {
-                set_do_not_disturb(false);
-                game_requested_dnd = false;
-            }
             
             last_game_package = "";
             active_package.clear();
             pid_tracker.invalidate();
             in_game_session = false;
+            idle_battery_check_counter = 100; // Force cek profile segera
         }
 
-        // Cek Battery Saver
-        static int bs_check_counter = 0;
-        if (bs_check_counter++ > 5) {
+        // Battery / Profile Management (Jarang-Jarang)
+        if (++idle_battery_check_counter >= 6) {
             battery_saver_state = CheckBatterySaver();
-            bs_check_counter = 0;
-        }
-
-        if (battery_saver_state) {
-            if (cur_mode != POWERSAVE_PROFILE) {
-                LOGI("Switching to PowerSave Profile");
-                cur_mode = POWERSAVE_PROFILE;
-                apply_powersave_profile();
+            idle_battery_check_counter = 0;
+            
+            // Logic Restore Profile (Penting saat layar baru nyala lagi)
+            if (battery_saver_state) {
+                if (cur_mode != POWERSAVE_PROFILE) {
+                    LOGI("Switching to PowerSave Profile (Battery Saver ON)");
+                    cur_mode = POWERSAVE_PROFILE;
+                    apply_powersave_profile();
+                }
+            } else {
+                // Ini yang akan terpanggil saat layar nyala kembali (Wake Up)
+                if (cur_mode != BALANCE_PROFILE) {
+                    LOGI("Switching to Balance Profile (Normal)");
+                    cur_mode = BALANCE_PROFILE;
+                    apply_balance_profile();
+                }
             }
-        } else {
-            if (cur_mode != BALANCE_PROFILE) {
-                LOGI("Switching to Balance Profile");
-                cur_mode = BALANCE_PROFILE;
-                apply_balance_profile();
-            }
         }
-
-        std::this_thread::sleep_for(NORMAL_LOOP_INTERVAL);
     }
 }
 
@@ -305,10 +336,8 @@ int run_daemon() {
 
 int main(int argc, char *argv[]) {
     if (getuid() != 0) {
-        std::cerr << "\033[31mERROR:\033[0m Please run this program as root" << std::endl;
+        std::cerr << "Run as root!" << std::endl;
         return EXIT_FAILURE;
     }
-
-    // Handle args
     return encore_cli(argc, argv);
 }

@@ -19,98 +19,109 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <cstring>
+#include <string_view>
 
 namespace Dumpsys {
 
 void WindowDisplays(DumpsysWindowDisplays &result) {
-    // Clear previous results
     result.screen_awake = false;
     result.recent_app.clear();
 
+    // Gunakan 'cmd' daripada 'dumpsys' jika memungkinkan, biasanya sedikit lebih cepat di beberapa ROM
     auto pipe = popen_direct({"/system/bin/dumpsys", "window", "visible-apps"});
 
     if (!pipe.stream) {
-        std::string error_msg = "popen failed: ";
-        error_msg += strerror(errno);
-        throw std::runtime_error(error_msg);
+        // Fallback or silent fail implementation
+        return;
     }
 
-    char buffer[1024];
+    char buffer[2048]; // Buffer diperbesar sedikit agar aman
     bool found_task_section = false;
     bool exited_task_section = false;
     bool found_awake = false;
-    std::string current_task_line;
+    
+    // Cache string views untuk comparison (hindari konstruksi string berulang)
+    constexpr std::string_view KEY_AWAKE = "mAwake=";
+    constexpr std::string_view KEY_AWAKE_TRUE = "mAwake=true";
+    constexpr std::string_view KEY_TASK_START = "Application tokens in top down Z order:";
+    constexpr std::string_view KEY_TASK_HEADER = "* Task{";
+    constexpr std::string_view KEY_ACT_RECORD = "* ActivityRecord{";
+    constexpr std::string_view KEY_VISIBLE_TRUE = "visible=true";
+    constexpr std::string_view KEY_TYPE_STANDARD = "type=standard";
+
+    std::string_view current_task_line_view;
+    char saved_task_line[1024]; // Buffer statis untuk menyimpan baris task terakhir
 
     while (fgets(buffer, sizeof(buffer), pipe.stream) != nullptr) {
-        std::string line(buffer);
+        // Zero-copy string view dari buffer saat ini
+        std::string_view line(buffer);
 
-        // We've got all information needed, do not process any further
-        if (exited_task_section && found_awake) {
-            break;
-        }
-
-        // Remove trailing newline
+        // Trim newline di akhir (optional, tapi good practice)
         if (!line.empty() && line.back() == '\n') {
-            line.pop_back();
+            line.remove_suffix(1);
         }
 
-        // Check for screen awake state
-        if (!found_awake && line.find("mAwake=") != std::string::npos) {
-            result.screen_awake = line.find("mAwake=true") != std::string::npos;
-            found_awake = true;
-            continue;
+        if (exited_task_section && found_awake) break;
+
+        // 1. Cek Screen Awake
+        if (!found_awake) {
+            if (line.find(KEY_AWAKE) != std::string_view::npos) {
+                result.screen_awake = line.find(KEY_AWAKE_TRUE) != std::string_view::npos;
+                found_awake = true;
+                continue;
+            }
         }
 
-        // Look for task section start
-        if (!found_task_section && line.find("Application tokens in top down Z order:") != std::string::npos) {
-            found_task_section = true;
-            continue;
+        // 2. Cari Section Task
+        if (!found_task_section) {
+            if (line.find(KEY_TASK_START) != std::string_view::npos) {
+                found_task_section = true;
+                continue;
+            }
         }
 
-        // Bailout if we aren't in task section
         if (!found_task_section || exited_task_section) continue;
 
-        // Check if we've reached the end of the task section
         if (line.empty()) {
             exited_task_section = true;
             continue;
         }
 
-        // Look for task lines and store it for processing
-        if (line.find("* Task{") != std::string::npos && line.find("type=standard") != std::string::npos) {
-            current_task_line = line;
+        // 3. Logic Parsing Task & Activity
+        // Cek apakah ini baris Task
+        if (line.find(KEY_TASK_HEADER) != std::string_view::npos) {
+            if (line.find(KEY_TYPE_STANDARD) != std::string_view::npos) {
+                // Salin ke buffer statis karena 'buffer' utama akan tertimpa di iterasi berikutnya
+                size_t copy_len = std::min(line.size(), sizeof(saved_task_line) - 1);
+                memcpy(saved_task_line, line.data(), copy_len);
+                saved_task_line[copy_len] = '\0';
+                current_task_line_view = std::string_view(saved_task_line, copy_len);
+            } else {
+                current_task_line_view = {}; // Reset jika bukan standard task
+            }
         }
-        // Look for ActivityRecord lines that follow task lines
-        else if (!current_task_line.empty() && line.find("* ActivityRecord{") != std::string::npos) {
+        // Cek Activity Record (anak dari Task)
+        else if (!current_task_line_view.empty() && line.find(KEY_ACT_RECORD) != std::string_view::npos) {
             RecentAppList app;
+            
+            // Cek visibility dari PARENT TASK (bukan activity-nya, sesuai logika lama)
+            app.visible = current_task_line_view.find(KEY_VISIBLE_TRUE) != std::string_view::npos;
 
-            // Extract visibility from the task line
-            app.visible = current_task_line.find("visible=true") != std::string::npos;
-
-            // Extract package name from ActivityRecord line
-            // Format: * ActivityRecord{91afba8 u0 com.termux/.app.TermuxActivity t1624}
+            // Parsing Package Name: * ActivityRecord{HEX u0 com.package/
             size_t u0_pos = line.find(" u0 ");
-            if (u0_pos != std::string::npos) {
-                size_t package_start = u0_pos + 4; // Skip " u0 "
-                size_t slash_pos = line.find("/", package_start);
-                if (slash_pos != std::string::npos) {
-                    app.package_name = line.substr(package_start, slash_pos - package_start);
-                    result.recent_app.push_back(app);
+            if (u0_pos != std::string_view::npos) {
+                size_t pkg_start = u0_pos + 4;
+                size_t slash_pos = line.find('/', pkg_start);
+                
+                if (slash_pos != std::string_view::npos) {
+                    // Konstruksi std::string hanya saat benar-benar ketemu (Allocation minimized)
+                    app.package_name = std::string(line.substr(pkg_start, slash_pos - pkg_start));
+                    result.recent_app.push_back(std::move(app));
                 }
             }
-
-            // Clear the current task line after processing
-            current_task_line.clear();
+            // Setelah diproses, reset parent task view agar tidak duplikat logic
+            current_task_line_view = {}; 
         }
-    }
-
-    // Handle missing information
-    if (!found_task_section) {
-        throw std::runtime_error("unable to find task section");
-    }
-
-    if (!found_awake) {
-        throw std::runtime_error("unable to find screen state info");
     }
 }
 
@@ -192,27 +203,25 @@ void Power(DumpsysPower &result) {
 }
 
 pid_t GetAppPID(const std::string &package_name) {
+    // Implementasi scan /proc yang sudah saya berikan sebelumnya (ini sudah optimal)
     DIR* dir = opendir("/proc");
     if (!dir) return 0;
 
     struct dirent* ent;
     pid_t found_pid = 0;
     char cmdline_path[64];
-    char cmdline_buf[512];
+    char cmdline_buf[256];
 
     while ((ent = readdir(dir)) != NULL) {
         if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
 
         snprintf(cmdline_path, sizeof(cmdline_path), "/proc/%s/cmdline", ent->d_name);
-
         int fd = open(cmdline_path, O_RDONLY | O_CLOEXEC);
         if (fd >= 0) {
             ssize_t len = read(fd, cmdline_buf, sizeof(cmdline_buf) - 1);
             close(fd);
-
             if (len > 0) {
-                cmdline_buf[len] = 0; // Null terminate
-                
+                cmdline_buf[len] = 0;
                 if (strcmp(cmdline_buf, package_name.c_str()) == 0) {
                     found_pid = atoi(ent->d_name);
                     break;
@@ -221,11 +230,6 @@ pid_t GetAppPID(const std::string &package_name) {
         }
     }
     closedir(dir);
-
-    if (found_pid == 0) {
-        return 0; 
-    }
-
     return found_pid;
 }
 

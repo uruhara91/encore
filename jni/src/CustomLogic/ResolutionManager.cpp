@@ -68,36 +68,38 @@ std::string ResolutionManager::GetRatio(const std::string& pkg) {
 
 void ResolutionManager::ApplyGameMode(const std::string& packageName) {
     std::string ratio = GetRatio(packageName);
-    if (!ratio.empty()) {
-        std::vector<const char*> args = {
-            "/system/bin/cmd", 
-            "game", 
-            "mode", 
-            "set", 
-            "--downscale", 
-            ratio.c_str(), 
-            packageName.c_str(), 
-            NULL 
-        };
-        ExecuteCmdDirect(args);
-        LOGI("ResolutionManager: Applied %s to %s", ratio.c_str(), packageName.c_str());
-    } else {
-        // Optional: Log if game not in config
-        // LOGD("ResolutionManager: No config for %s", packageName.c_str());
+    
+    // Jika tidak ada config, return
+    if (ratio.empty()) return;
+
+    // OPTIMASI: Cek cache. Jika sudah diapply dengan rasio yang sama, skip.
+    if (appliedCache.contains(packageName) && appliedCache[packageName] == ratio) {
+        return; 
     }
+
+    std::vector<const char*> args = {
+        "/system/bin/cmd", "game", "mode", "set", "--downscale", 
+        ratio.c_str(), packageName.c_str(), NULL 
+    };
+    ExecuteCmdDirect(args);
+    
+    // Update cache
+    appliedCache[packageName] = ratio;
+    LOGI("ResolutionManager: Applied %s to %s", ratio.c_str(), packageName.c_str());
 }
 
 void ResolutionManager::ResetGameMode(const std::string& packageName) {
+    // Cek cache dulu, kalau memang belum diapply (atau sudah standar), gausah reset
+    if (!appliedCache.contains(packageName)) return;
+
     std::vector<const char*> args = {
-        "/system/bin/cmd", 
-        "game", 
-        "mode", 
-        "set", 
-        "standard", 
-        packageName.c_str(), 
-        NULL 
+        "/system/bin/cmd", "game", "mode", "set", "standard", 
+        packageName.c_str(), NULL 
     };
     ExecuteCmdDirect(args);
+    
+    // Hapus dari cache
+    appliedCache.erase(packageName);
     LOGD("ResolutionManager: Reset %s", packageName.c_str());
 }
 
