@@ -201,6 +201,7 @@ void encore_main_daemon(void) {
                     
                     if (dnd_enabled_by_us) {
                         dnd_enabled_by_us = false;
+                        set_do_not_disturb(false);
                     }
                     
                     last_game_package = "";
@@ -238,6 +239,7 @@ void encore_main_daemon(void) {
             
             if (dnd_enabled_by_us) {
                 dnd_enabled_by_us = false;
+                set_do_not_disturb(false);
                 LOGI("DND Mode: OFF (Restored)");
             }
             
@@ -279,9 +281,8 @@ void encore_main_daemon(void) {
                 }
                 
                 if (enable_dnd) {
-                    // set_do_not_disturb(true);
+                    set_do_not_disturb(true);
                     dnd_enabled_by_us = true;
-                    LOGI("DND Mode: ON");
                 }
 
                 last_game_package = active_package;
