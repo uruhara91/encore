@@ -110,8 +110,16 @@ bool CheckBatterySaver() {
     if (IsCharging()) return false;
     
     try {
-        std::string output = ShellUtility::Execute("cmd power is-power-save-mode");
-        return (output.find("true") != std::string::npos);
+        std::vector<std::string> args = {"/system/bin/cmd", "power", "is-power-save-mode"};
+        PipeResult pipe_res = popen_direct(args);
+        
+        if (pipe_res.stream != nullptr) {
+            char buf[32];
+            if (fgets(buf, sizeof(buf), pipe_res.stream) != nullptr) {
+                return (strcasestr(buf, "true") != nullptr);
+            }
+        }
+        return false;
     } catch (...) {
         return false;
     }
