@@ -34,7 +34,7 @@ PPM_POLICY=$(<$MODULE_CONFIG/ppm_policies_mediatek)
 DEFAULT_CPU_GOV="$ENCORE_BALANCED_CPUGOV"
 
 # Just a note that lite mode is now controlled by script arg, check case
-# statement on the EOF and performance_profile() functions.
+# statement on the EOF and performance_profile() function.
 
 # Certain ENCORE_* variables is set by daemon, see 'jni/src/EncoreUtility/Profiler.cpp'.
 
@@ -414,10 +414,6 @@ tensor_performance() {
 	}
 }
 
-intel_performance() {
-	return 0 # some tweaks soon
-}
-
 ###################################
 # Device-specific normal profile
 ###################################
@@ -563,10 +559,6 @@ tensor_normal() {
 	}
 }
 
-intel_normal() {
-	return 0 # some tweaks soon
-}
-
 ###################################
 # Device-specific powersave profile
 ###################################
@@ -587,7 +579,11 @@ mediatek_powersave() {
 
 snapdragon_powersave() {
 	# GPU Frequency
-	devfreq_min_perf /sys/class/kgsl/kgsl-3d0/devfreq
+	# There's some report that this causes no video issue after the phone went sleep and awaken
+	# However there's no informations about which affected device models that've been disclosed by the users
+	if [ -z $ENCORE_QCOM_NO_GPU_POWERSAVE ]; then
+		devfreq_min_perf /sys/class/kgsl/kgsl-3d0/devfreq
+	fi
 }
 
 tegra_powersave() {
@@ -623,10 +619,6 @@ tensor_powersave() {
 		apply "$freq" "$gpu_path/scaling_min_freq"
 		apply "$freq" "$gpu_path/scaling_max_freq"
 	}
-}
-
-intel_powersave() {
-	return 0 # some tweaks soon
 }
 
 ###################################
@@ -813,8 +805,7 @@ performance_profile() {
 	3) exynos_performance ;;
 	4) unisoc_performance ;;
 	5) tensor_performance ;;
-	6) intel_performance ;;
-	7) tegra_performance ;;
+	6) tegra_performance ;;
 	esac
 
 	echo 3 >/proc/sys/vm/drop_caches
@@ -892,8 +883,7 @@ balance_profile() {
 	3) exynos_normal ;;
 	4) unisoc_normal ;;
 	5) tensor_normal ;;
-	6) intel_normal ;;
-	7) tegra_normal ;;
+	6) tegra_normal ;;
 	esac
 }
 
@@ -924,8 +914,7 @@ powersave_profile() {
 	3) exynos_powersave ;;
 	4) unisoc_powersave ;;
 	5) tensor_powersave ;;
-	6) intel_powersave ;;
-	7) tegra_powersave ;;
+	6) tegra_powersave ;;
 	esac
 }
 
