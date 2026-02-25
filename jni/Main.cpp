@@ -211,7 +211,7 @@ void encore_main_daemon(void) {
             
             LOGI("[TRACE-MAIN] Logcat terpicu untuk: {}", active_package);
             
-            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1500));
             std::string real_focused_app = GetFocusedPackage();
             LOGI("[TRACE-MAIN] Dumpsys melapor (mCurrentFocus): {}", real_focused_app.empty() ? "UNKNOWN" : real_focused_app);
 

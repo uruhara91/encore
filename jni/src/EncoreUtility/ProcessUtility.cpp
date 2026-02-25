@@ -71,7 +71,7 @@ std::string GetFocusedPackage() {
 
     char buffer[512];
     std::string pkg = "";
-    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+    if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
         std::string line(buffer);
         size_t slash_pos = line.find("/");
         if (slash_pos != std::string::npos) {
@@ -81,11 +81,9 @@ std::string GetFocusedPackage() {
                 
                 std::string clean_pkg = "";
                 for (char c : pkg) {
-                    if (c != '}' && c != '{' && c != '\n' && c != '\r') clean_pkg += c;
+                    if (isalnum(c) || c == '.' || c == '_') clean_pkg += c;
                 }
                 pkg = clean_pkg;
-                
-                if (!pkg.empty()) break;
             }
         }
     }
