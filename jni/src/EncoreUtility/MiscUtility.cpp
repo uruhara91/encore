@@ -145,11 +145,11 @@ void is_kanged(void) {
         ModuleProperty::Get(MODULE_PROP, module_properties);
 
         for (const auto &property : module_properties) {
-            if (property.key == "name" && property.value != "Encore Tweaks") {
+            if (property.key == "name" && property.value != "Encore Tweaks Refactored") {
                 goto doorprize;
             }
 
-            if (property.key == "author" && property.value != "Rem01Gaming") {
+            if (property.key == "author" && property.value != "Rem01Gaming, uruhara91") {
                 goto doorprize;
             }
         }
