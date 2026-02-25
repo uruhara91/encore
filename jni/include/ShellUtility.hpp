@@ -29,6 +29,8 @@ struct PipeResult {
     FILE* stream = nullptr;
     pid_t pid = -1;
 
+    PipeResult(FILE* s, pid_t p) : stream(s), pid(p) {}
+
     ~PipeResult() {
         if (stream) {
             fclose(stream);
