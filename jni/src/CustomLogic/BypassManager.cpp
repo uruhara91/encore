@@ -6,11 +6,11 @@
 #include <string_view>
 
 void BypassManager::Init() {
-    if (access(PATH_CMD.c_str(), F_OK) == 0) {
+    if (access(PATH_CMD.data(), F_OK) == 0) {
         targetPath = PATH_CMD;
         mode = 0;
         LOGI("BypassManager: Detected MTK current_cmd interface");
-    } else if (access(PATH_EN.c_str(), F_OK) == 0) {
+    } else if (access(PATH_EN.data(), F_OK) == 0) {
         targetPath = PATH_EN;
         mode = 1;
         LOGI("BypassManager: Detected MTK en_power_path interface");
