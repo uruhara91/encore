@@ -203,7 +203,7 @@ void encore_main_daemon(void) {
             in_game_session = false;
             
             idle_battery_check_counter = 100;
-            cur_mode = BALANCE_PROFILE;
+            cur_mode = PERFCOMMON; 
         }
 
         // ===========================
@@ -211,30 +211,6 @@ void encore_main_daemon(void) {
         // ===========================
         if (in_game_session && !active_package.empty()) {
             if (active_package != last_game_package) {
-
-                if (!last_game_package.empty()) {
-                    LOGI("Switching games! Resetting previous game: %s", last_game_package.c_str());
-                    ResolutionManager::GetInstance().ResetGameMode(last_game_package);
-                }
-                LOGI("Enter Game: %s", active_package.c_str());
-                
-                auto active_game = game_registry.find_game(active_package); 
-                bool lite_mode = (active_game && active_game->lite_mode) || config_store.get_preferences().enforce_lite_mode;
-                bool enable_dnd = (active_game && active_game->enable_dnd);
-
-                ResolutionManager::GetInstance().ApplyGameMode(active_package);
-                
-                if (!lite_mode) {
-                    BypassManager::GetInstance().SetBypass(true);
-                } else {
-                    BypassManager::GetInstance().SetBypass(false);
-                }
-                
-                if (enable_dnd) {
-                    set_do_not_disturb(true);
-                    dnd_enabled_by_us = true;
-                }
-
                 pid_t game_pid = GetAppPID_Fast(active_package);
                 int retries = 0;
                 while (game_pid <= 0 && retries < 10) {
@@ -244,15 +220,41 @@ void encore_main_daemon(void) {
                 }
 
                 if (game_pid > 0) {
+                    if (!last_game_package.empty()) {
+                        LOGI("Switching games! Resetting previous game: %s", last_game_package.c_str());
+                        ResolutionManager::GetInstance().ResetGameMode(last_game_package);
+                    }
+
+                    LOGI("Enter Game: %s", active_package.c_str());
+                    
+                    auto active_game = game_registry.find_game(active_package); 
+                    bool lite_mode = (active_game && active_game->lite_mode) || config_store.get_preferences().enforce_lite_mode;
+                    bool enable_dnd = (active_game && active_game->enable_dnd);
+
+                    ResolutionManager::GetInstance().ApplyGameMode(active_package);
+                    
+                    if (!lite_mode) {
+                        BypassManager::GetInstance().SetBypass(true);
+                    } else {
+                        BypassManager::GetInstance().SetBypass(false);
+                    }
+                    
+                    if (enable_dnd) {
+                        set_do_not_disturb(true);
+                        dnd_enabled_by_us = true;
+                    }
+
                     cur_mode = PERFORMANCE_PROFILE;
                     apply_performance_profile(lite_mode, active_package, game_pid);
                     pid_tracker.set_pid(game_pid);
                     LOGI("Profile: Performance (PID: %d)", game_pid);
-                } else {
-                    LOGW("Failed to attach PID for %s even after retries", active_package.c_str());
-                }
 
-                last_game_package = active_package;
+                    last_game_package = active_package;
+                } else {
+                    LOGW("Fake resume ignored (No PID): %s", active_package.c_str());
+                    active_package.clear();
+                    in_game_session = false;
+                }
             }
             continue;
         }
