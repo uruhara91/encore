@@ -47,13 +47,13 @@ void InitCpuGovernorPaths() {
     LOGI("Cached %zu CPU governor paths", cpu_governor_paths.size());
 }
 
-void SetCpuGovernor(const std::string& governor) {
+void SetCpuGovernor(std::string_view governor) {
     if (cpu_governor_paths.empty()) return;
 
     for (const auto& path : cpu_governor_paths) {
         int fd = open(path.c_str(), O_WRONLY | O_CLOEXEC);
         if (fd >= 0) {
-            write(fd, governor.c_str(), governor.length());
+            write(fd, governor.data(), governor.length()); 
             close(fd);
         }
     }

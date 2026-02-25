@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <string_view>
 #include <unistd.h>
 
 #include <Encore.hpp>
@@ -78,6 +79,7 @@ void apply_performance_profile(bool lite_mode, std::string game_pkg, pid_t game_
 void apply_balance_profile();
 void apply_powersave_profile();
 pid_t GetAppPID_Fast(const std::string& targetPkg);
+bool IsPidTrulyForeground(pid_t pid);
 void InitCpuGovernorPaths();
-void SetCpuGovernor(const std::string& governor);
+void SetCpuGovernor(std::string_view governor);
 bool CheckBatterySaver();

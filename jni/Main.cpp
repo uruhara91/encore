@@ -50,8 +50,6 @@
 
 GameRegistry game_registry;
 
-// --- HELPERS ---
-
 void encore_main_daemon(void) {
     constexpr auto NORMAL_LOOP_INTERVAL_MS = 5000;
     constexpr auto INGAME_LOOP_INTERVAL_MS = 1000;

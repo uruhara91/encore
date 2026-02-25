@@ -17,6 +17,7 @@
 #include <dirent.h>
 #include <cstring>
 #include <cstdlib>
+#include <cstdio>
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -61,4 +62,21 @@ pid_t GetAppPID_Fast(const std::string& targetPkg) {
     }
     closedir(dir);
     return found_pid;
+}
+
+bool IsPidTrulyForeground(pid_t pid) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/oom_score_adj", pid);
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return false;
+    
+    char buf[16];
+    ssize_t len = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    
+    if (len > 0) {
+        buf[len] = '\0';
+        return atoi(buf) <= 0; 
+    }
+    return false;
 }
