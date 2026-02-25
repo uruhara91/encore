@@ -217,28 +217,43 @@ void encore_main_daemon(void) {
             LOGI("[TRACE-MAIN] Logcat terpicu untuk: {}", active_package);
             
             pid_t game_pid = GetAppPID_Fast(active_package);
-            int retries = 0;
-            while (game_pid <= 0 && retries < 10) {
+            // Retry cepat untuk Cold Start (max 50ms x 10)
+            for (int i = 0; i < 10 && game_pid <= 0; i++) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 game_pid = GetAppPID_Fast(active_package);
-                retries++;
             }
 
             if (game_pid > 0) {
-                LOGI("[TRACE-MAIN] PID didapat: {} (Tunggu 400ms...)", game_pid);
+                LOGI("[TRACE-MAIN] PID kandidat: {}", game_pid);
                 
-                // THE ULTIMATE FIX: Jeda 500ms.
-                // Biarkan Android menyelesaikan animasi Swipe/Kill di Recent Apps.
-                // Jika ini adalah jebakan swipe, proses PASTI sudah lenyap/dibunuh dalam 500ms ini.
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                
-                // Cek kill() untuk memastikan proses tidak terbunuh saat kita tidur, 
-                // lalu pastikan OOM-nya Foreground (0).
-                if (kill(game_pid, 0) == 0 && IsPidTrulyForeground(game_pid)) {
-                    LOGI("[TRACE-MAIN] PID {} Valid Foreground (Hidup)!", game_pid);
+                bool is_stable = true;
+                for (int i = 0; i < 8; i++) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    
+                    // 1. Cek apakah PID masih ada
+                    if (kill(game_pid, 0) != 0) {
+                        LOGW("[TRACE-MAIN] PID {} mendadak hilang di detik ke-0.{}", game_pid, i+1);
+                        is_stable = false; break;
+                    }
+                    
+                    // 2. Cek apakah sudah jadi Zombie (Defunct)
+                    if (IsProcessZombie(game_pid)) {
+                        LOGW("[TRACE-MAIN] PID {} berubah jadi Zombie!", game_pid);
+                        is_stable = false; break;
+                    }
+
+                    // 3. Cek OOM Score (Harus Foreground/0)
+                    if (!IsPidTrulyForeground(game_pid)) {
+                        LOGW("[TRACE-MAIN] PID {} OOM Score naik (Background/Dying)!", game_pid);
+                        is_stable = false; break;
+                    }
+                }
+
+                if (is_stable) {
+                    LOGI("[TRACE-MAIN] PID {} Stabil & Valid! Masuk Game.", game_pid);
                     
                     if (!last_game_package.empty()) {
-                        LOGI("Switching games! Resetting previous game: {}", last_game_package);
+                        LOGI("Switching games! Resetting previous: {}", last_game_package);
                         ResolutionManager::GetInstance().ResetGameMode(last_game_package);
                     }
 
@@ -264,17 +279,15 @@ void encore_main_daemon(void) {
                     cur_mode = PERFORMANCE_PROFILE;
                     apply_performance_profile(lite_mode, active_package, game_pid);
                     pid_tracker.set_pid(game_pid);
-                    LOGI("Profile: Performance (PID: {})", game_pid);
-
+                    
                     last_game_package = active_package;
                 } else {
-                    // Berhasil menggagalkan jebakan Fake Resume OS!
-                    LOGW("[TRACE-MAIN] Fake resume diabaikan (Proses mati / OOM>0): {}", active_package);
+                    LOGW("[TRACE-MAIN] Fake resume dibatalkan untuk: {}", active_package);
                     active_package.clear();
                     in_game_session = false;
                 }
             } else {
-                LOGW("[TRACE-MAIN] Gagal mendapat PID: {}", active_package);
+                LOGW("[TRACE-MAIN] Gagal dapat PID untuk: {}", active_package);
                 active_package.clear();
                 in_game_session = false;
             }

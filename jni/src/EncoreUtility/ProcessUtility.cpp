@@ -65,6 +65,31 @@ pid_t GetAppPID_Fast(const std::string& targetPkg) {
     return found_pid;
 }
 
+bool IsProcessZombie(pid_t pid) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+    
+    int fd = open(path, O_RDONLY | O_CLOEXEC);
+    if (fd < 0) return true;
+    
+    char buf[256];
+    ssize_t len = read(fd, buf, sizeof(buf) - 1);
+    close(fd);
+    
+    if (len > 0) {
+        buf[len] = '\0';
+        char* state_ptr = strrchr(buf, ')');
+        if (state_ptr && (state_ptr + 1) < (buf + len)) {
+            char state = *(state_ptr + 2);
+            if (state == 'Z' || state == 'X' || state == 'x' || state == 'T') {
+                LOGD("[ProcessUtility] PID %d terdeteksi Zombie/Dead (State: %c)", pid, state);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool IsPidTrulyForeground(pid_t pid) {
     char path[64];
     snprintf(path, sizeof(path), "/proc/%d/oom_score_adj", pid);
@@ -81,7 +106,7 @@ bool IsPidTrulyForeground(pid_t pid) {
     if (len > 0) {
         buf[len] = '\0';
         int score = atoi(buf);
-        LOGI("[TRACE-OOM] PID %d punya skor OOM: %d", pid, score); // <--- KITA INTIP SKORNYA DI SINI
+        LOGI("[TRACE-OOM] PID %d punya skor OOM: %d", pid, score);
         return score <= 0; 
     }
     return false;
