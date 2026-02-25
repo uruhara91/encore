@@ -77,3 +77,7 @@ void run_perfcommon(void);
 void apply_performance_profile(bool lite_mode, std::string game_pkg, pid_t game_pid);
 void apply_balance_profile();
 void apply_powersave_profile();
+pid_t GetAppPID_Fast(const std::string& targetPkg);
+void InitCpuGovernorPaths();
+void SetCpuGovernor(const std::string& governor);
+bool CheckBatterySaver();

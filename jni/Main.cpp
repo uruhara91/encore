@@ -45,7 +45,6 @@
 #include <ShellUtility.hpp>
 #include <SignalHandler.hpp>
 
-// Custom Logic Managers
 #include "../src/CustomLogic/BypassManager.hpp"
 #include "../src/CustomLogic/ResolutionManager.hpp"
 
@@ -54,101 +53,6 @@ GameRegistry game_registry;
 // --- HELPERS ---
 
 static std::vector<std::string> cpu_governor_paths;
-
-void InitCpuGovernorPaths() {
-    DIR* dir = opendir("/sys/devices/system/cpu");
-    if (!dir) return;
-    
-    struct dirent* ent;
-    char path[128];
-    
-    while ((ent = readdir(dir)) != NULL) {
-        if (strncmp(ent->d_name, "cpu", 3) == 0 && isdigit(ent->d_name[3])) {
-            snprintf(path, sizeof(path), "/sys/devices/system/cpu/%s/cpufreq/scaling_governor", ent->d_name);
-
-            if (access(path, W_OK) == 0) {
-                cpu_governor_paths.push_back(path);
-            }
-        }
-    }
-    closedir(dir);
-    LOGI("Cached %zu CPU governor paths", cpu_governor_paths.size());
-}
-
-void SetCpuGovernor(const std::string& governor) {
-    if (cpu_governor_paths.empty()) return;
-
-    for (const auto& path : cpu_governor_paths) {
-        int fd = open(path.c_str(), O_WRONLY | O_CLOEXEC);
-        if (fd >= 0) {
-            write(fd, governor.c_str(), governor.length());
-            close(fd);
-        }
-    }
-}
-
-bool IsCharging() {
-    int fd = open("/sys/class/power_supply/battery/status", O_RDONLY | O_CLOEXEC);
-    if (fd == -1) return false;
-
-    char buf[16];
-    ssize_t len = read(fd, buf, sizeof(buf) - 1);
-    close(fd);
-
-    if (len > 0) {
-        buf[len] = '\0';
-        if (strcasestr(buf, "Charging") || strcasestr(buf, "Full")) return true;
-    }
-    return false;
-}
-
-bool CheckBatterySaver() {
-    if (IsCharging()) return false;
-    
-    try {
-        std::vector<std::string> args = {"/system/bin/cmd", "power", "is-power-save-mode"};
-        PipeResult pipe_res = popen_direct(args);
-        
-        if (pipe_res.stream != nullptr) {
-            char buf[32];
-            if (fgets(buf, sizeof(buf), pipe_res.stream) != nullptr) {
-                return (strcasestr(buf, "true") != nullptr);
-            }
-        }
-        return false;
-    } catch (...) {
-        return false;
-    }
-}
-
-pid_t GetAppPID_Fast(const std::string& targetPkg) {
-    DIR* dir = opendir("/proc");
-    if (!dir) return -1;
-
-    struct dirent* ent;
-    char cmdlinePath[64];
-    char cmdlineBuf[256];
-    pid_t found_pid = -1;
-
-    while ((ent = readdir(dir)) != NULL) {
-        if (ent->d_name[0] < '0' || ent->d_name[0] > '9') continue;
-
-        snprintf(cmdlinePath, sizeof(cmdlinePath), "/proc/%s/cmdline", ent->d_name);
-        int fd = open(cmdlinePath, O_RDONLY | O_CLOEXEC);
-        if (fd >= 0) {
-            ssize_t len = read(fd, cmdlineBuf, sizeof(cmdlineBuf) - 1);
-            close(fd);
-            if (len > 0) {
-                if (strcmp(cmdlineBuf, targetPkg.c_str()) == 0) {
-                    found_pid = atoi(ent->d_name);
-                    break;
-                }
-            }
-        }
-    }
-    closedir(dir);
-    return found_pid;
-}
 
 void encore_main_daemon(void) {
     constexpr auto NORMAL_LOOP_INTERVAL_MS = 5000;
@@ -170,8 +74,7 @@ void encore_main_daemon(void) {
     pthread_setname_np(pthread_self(), "EncoreLoop");
     InitCpuGovernorPaths();
 
-    // 1. BUKA STREAM KE KERNEL LOGCAT (EVENT BUFFER)
-    FILE* log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity", "r");
+    FILE* log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity", "r");
     if (!log_pipe) {
         LOGE("Failed to open logcat pipe!");
         return;
@@ -192,19 +95,16 @@ void encore_main_daemon(void) {
         }
 
         int timeout_ms = in_game_session ? INGAME_LOOP_INTERVAL_MS : NORMAL_LOOP_INTERVAL_MS;
-        
-        // 2. DAEMON TERTIDUR PULAS
         int ret = poll(&pfd, 1, timeout_ms);
 
         bool app_changed = false;
         std::string new_fg_app = active_package;
 
         if (ret > 0 && (pfd.revents & POLLIN)) {
-            // 1. Cek apakah pipe putus (EOF)
             if (fgets(log_buf, sizeof(log_buf), log_pipe) == nullptr) {
                 LOGE("Logcat pipe broken! Restarting...");
                 pclose(log_pipe);
-                log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity", "r");
+                log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity", "r");
                 if (log_pipe) {
                     log_fd = fileno(log_pipe);
                     fcntl(log_fd, F_SETFL, fcntl(log_fd, F_GETFL) | O_NONBLOCK);
@@ -215,20 +115,17 @@ void encore_main_daemon(void) {
 
             do {
                 std::string line(log_buf);
-                
                 size_t start = line.find(',');
                 size_t end = line.find('/');
                 
                 if (start != std::string::npos && end != std::string::npos && end > start) {
                     std::string pkg = line.substr(start + 1, end - start - 1);
                     
-                    // SAFE TRIM KIRI
                     size_t first = pkg.find_first_not_of(" \t\r\n[");
                     if (first == std::string::npos) {
                         pkg.clear();
                     } else {
                         pkg.erase(0, first);
-                        // SAFE TRIM KANAN
                         size_t last = pkg.find_last_not_of(" \t\r\n]");
                         if (last != std::string::npos) {
                             pkg.erase(last + 1);
@@ -266,7 +163,7 @@ void encore_main_daemon(void) {
         }
 
         // ===========================
-        // STATE: EXIT GAME
+        // EXIT GAME
         // ===========================
         if (force_exit && !last_game_package.empty()) {
             LOGI("Exit Game: %s", last_game_package.c_str());
@@ -288,7 +185,7 @@ void encore_main_daemon(void) {
         }
 
         // ===========================
-        // STATE: ENTER GAME
+        // ENTER GAME
         // ===========================
         if (in_game_session && !active_package.empty()) {
             if (active_package != last_game_package) {
@@ -302,10 +199,8 @@ void encore_main_daemon(void) {
                 
                 if (!lite_mode) {
                     BypassManager::GetInstance().SetBypass(true);
-                    LOGI("Bypass Charge: ON");
                 } else {
                     BypassManager::GetInstance().SetBypass(false);
-                    LOGI("Bypass Charge: OFF (Lite Mode)");
                 }
                 
                 if (enable_dnd) {
@@ -327,7 +222,7 @@ void encore_main_daemon(void) {
         }
 
         // ===========================
-        // STATE: IDLE CHECK
+        // IDLE CHECK
         // ===========================
         if (!in_game_session && ++idle_battery_check_counter >= 6) {
             battery_saver_state = CheckBatterySaver();
@@ -335,13 +230,11 @@ void encore_main_daemon(void) {
             
             if (battery_saver_state) {
                 if (cur_mode != POWERSAVE_PROFILE) {
-                    LOGI("Profile: PowerSave");
                     cur_mode = POWERSAVE_PROFILE;
                     apply_powersave_profile();
                 }
             } else {
                 if (cur_mode != BALANCE_PROFILE) {
-                    LOGI("Profile: Balance");
                     cur_mode = BALANCE_PROFILE;
                     apply_balance_profile();
                 }
