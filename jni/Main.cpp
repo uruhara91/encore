@@ -32,7 +32,6 @@
 #include <csignal>
 
 #include <DeviceMitigationStore.hpp>
-#include <Dumpsys.hpp>
 #include <Encore.hpp>
 #include <EncoreCLI.hpp>
 #include <EncoreConfig.hpp>
@@ -77,9 +76,8 @@ void InitCpuGovernorPaths() {
 }
 
 void SetCpuGovernor(const std::string& governor) {
-    if (cpu_governor_paths.empty()) return; // Safety guard
+    if (cpu_governor_paths.empty()) return;
 
-    // Langsung buka path yang sudah di-cache
     for (const auto& path : cpu_governor_paths) {
         int fd = open(path.c_str(), O_WRONLY | O_CLOEXEC);
         if (fd >= 0) {
@@ -92,7 +90,6 @@ void SetCpuGovernor(const std::string& governor) {
 bool IsCharging() {
     static int fd = open("/sys/class/power_supply/battery/status", O_RDONLY | O_CLOEXEC);
     
-    // Fail-safe jika awal boot sysfs belum ready
     if (fd == -1) {
         fd = open("/sys/class/power_supply/battery/status", O_RDONLY | O_CLOEXEC);
         if (fd == -1) return false;
@@ -145,7 +142,6 @@ pid_t GetAppPID_Fast(const std::string& targetPkg) {
             ssize_t len = read(fd, cmdlineBuf, sizeof(cmdlineBuf) - 1);
             close(fd);
             if (len > 0) {
-                // Di Linux, spasi di cmdline diganti dengan null terminator '\0'
                 if (strcmp(cmdlineBuf, targetPkg.c_str()) == 0) {
                     found_pid = atoi(ent->d_name);
                     break;
@@ -159,8 +155,7 @@ pid_t GetAppPID_Fast(const std::string& targetPkg) {
 
 void encore_main_daemon(void) {
     constexpr auto NORMAL_LOOP_INTERVAL_MS = 5000;
-    // Interval game bisa kita perbesar karena event buka-tutup app kini terdeteksi INSTAN (<5ms)
-    constexpr auto INGAME_LOOP_INTERVAL_MS = 3000; 
+    constexpr auto INGAME_LOOP_INTERVAL_MS = 1000;
 
     EncoreProfileMode cur_mode = PERFCOMMON;
 
@@ -186,7 +181,6 @@ void encore_main_daemon(void) {
     }
 
     int log_fd = fileno(log_pipe);
-    // Jadikan non-blocking agar tidak tersangkut di fgets()
     fcntl(log_fd, F_SETFL, fcntl(log_fd, F_GETFL) | O_NONBLOCK);
 
     struct pollfd pfd;
@@ -208,8 +202,24 @@ void encore_main_daemon(void) {
         bool app_changed = false;
         std::string new_fg_app = active_package;
 
-        // --- EVENT: ADA PERPINDAHAN APLIKASI DI LAYAR ---
         if (ret > 0 && (pfd.revents & POLLIN)) {
+            if (fgets(log_buf, sizeof(log_buf), log_pipe) == nullptr) {
+                LOGE("Logcat pipe broken! Restarting...");
+                pclose(log_pipe);
+                log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity", "r");
+                if (log_pipe) {
+                    log_fd = fileno(log_pipe);
+                    fcntl(log_fd, F_SETFL, fcntl(log_fd, F_GETFL) | O_NONBLOCK);
+                    pfd.fd = log_fd;
+                }
+                continue;
+            }
+
+            do {
+                std::string line(log_buf);
+                // ... [Logika parsing string SAFE TRIM Anda di sini] ...
+            } while (fgets(log_buf, sizeof(log_buf), log_pipe) != nullptr);
+
             while (fgets(log_buf, sizeof(log_buf), log_pipe)) {
                 std::string line(log_buf);
                 
@@ -218,42 +228,49 @@ void encore_main_daemon(void) {
                 
                 if (start != std::string::npos && end != std::string::npos && end > start) {
                     std::string pkg = line.substr(start + 1, end - start - 1);
-                    // Bersihkan spasi/karakter sisa
-                    pkg.erase(0, pkg.find_first_not_of(" \t\r\n["));
-                    pkg.erase(pkg.find_last_not_of(" \t\r\n]") + 1);
-                    
-                    if (!pkg.empty()) {
-                        new_fg_app = pkg;
-                        app_changed = true;
+                    if (start != std::string::npos && end != std::string::npos && end > start) {
+                        std::string pkg = line.substr(start + 1, end - start - 1);
+                        
+                        // SAFE TRIM KIRI
+                        size_t first = pkg.find_first_not_of(" \t\r\n[");
+                        if (first == std::string::npos) {
+                            pkg.clear();
+                        } else {
+                            pkg.erase(0, first);
+                            // SAFE TRIM KANAN
+                            size_t last = pkg.find_last_not_of(" \t\r\n]");
+                            if (last != std::string::npos) {
+                                pkg.erase(last + 1);
+                            }
+                        }
+                        
+                        if (!pkg.empty()) {
+                            new_fg_app = pkg;
+                            app_changed = true;
+                        }
                     }
                 }
             }
         }
 
-        // --- LOGIC: VALIDASI GAME BARU/KELUAR ---
         if (app_changed) {
             if (game_registry.is_game_registered(new_fg_app)) {
                 active_package = new_fg_app;
                 in_game_session = true;
             } else {
-                // User buka Launcher (XOSLauncher) atau App biasa, kosongkan active_package
                 active_package.clear(); 
             }
         }
 
         bool force_exit = false;
 
-        // --- PENGGANTI DUMPSYS: CEK PID MATI VIA KERNEL ---
         if (in_game_session && !active_package.empty() && pid_tracker.is_valid()) {
-            // kill(pid, 0) adalah trik OS untuk mengecek apakah PID masih ada
-            // Trik ini jauh lebih ringan daripada Dumpsys
             if (kill(pid_tracker.get_pid(), 0) != 0) {
                 LOGI("Game PID dead (Force Close): %s", active_package.c_str());
                 force_exit = true;
             }
         }
         
-        // Jika statusnya pindah ke app non-game, exit game mode
         if (app_changed && active_package != last_game_package && active_package.empty()) {
             force_exit = true;
         }
@@ -276,8 +293,8 @@ void encore_main_daemon(void) {
             pid_tracker.invalidate();
             in_game_session = false;
             
-            idle_battery_check_counter = 100; // Paksa idle check selanjutnya
-            cur_mode = BALANCE_PROFILE; // Fallback profile 
+            idle_battery_check_counter = 100;
+            cur_mode = BALANCE_PROFILE;
         }
 
         // ===========================
@@ -306,7 +323,6 @@ void encore_main_daemon(void) {
                     dnd_enabled_by_us = true;
                 }
 
-                // Ambil PID HANYA 1x saat pertama buka game
                 pid_t game_pid = GetAppPID_Fast(active_package);
                 if (game_pid > 0) {
                     cur_mode = PERFORMANCE_PROFILE;
@@ -317,7 +333,7 @@ void encore_main_daemon(void) {
 
                 last_game_package = active_package;
             }
-            continue; // Jangan jalankan idle check saat main game
+            continue;
         }
 
         // ===========================
@@ -343,7 +359,6 @@ void encore_main_daemon(void) {
         }
     }
 
-    // Cleanup saat Daemon di-stop
     if (log_pipe) pclose(log_pipe);
 }
 
@@ -372,13 +387,6 @@ int run_daemon() {
 
     if (!create_lock_file()) {
         std::cerr << "\033[31mERROR:\033[0m Another instance of Encore Daemon is already running!" << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    if (!check_dumpsys_sanity()) {
-        std::cerr << "\033[31mERROR:\033[0m Dumpsys sanity check failed" << std::endl;
-        NotifyFatalError("Dumpsys sanity check failed");
-        LOGC("Dumpsys sanity check failed");
         return EXIT_FAILURE;
     }
 
