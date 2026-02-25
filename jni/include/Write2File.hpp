@@ -18,6 +18,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <string_view>
 
 /**
 * @brief Writes formatted content to a file, truncating it if it exists.
@@ -30,11 +31,11 @@
 * @return true if the write operation was successful, false otherwise.
 */
 template <typename... Args>
-bool write2file(const std::string &filename, Args &&...args) {
+bool write2file(std::string_view filename, Args &&...args) {
     std::ostringstream oss;
     (oss << ... << std::forward<Args>(args));
 
-    std::ofstream file(filename, std::ios::trunc);
+    std::ofstream file(filename.data(), std::ios::trunc);
     if (!file.is_open()) {
         return false;
     }

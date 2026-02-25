@@ -17,6 +17,7 @@
 #pragma once
 
 #include <memory>
+#include <string_view>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 
@@ -35,9 +36,9 @@ inline std::shared_ptr<spdlog::logger> g_logger;
  * @details Creates a basic file logger with the pattern "YYYY-MM-DD HH:MM:SS.mmm L message"
  * @note If initialization fails, the program will exit with EXIT_FAILURE.
  */
-inline void init(const std::string &log_path = LOG_FILE) {
+inline void init(std::string_view log_path = LOG_FILE) {
     try {
-        g_logger = spdlog::basic_logger_mt("Encore", log_path);
+        g_logger = spdlog::basic_logger_mt("Encore", log_path.data());
         g_logger->set_pattern("%Y-%m-%d %H:%M:%S.%e %L %v");
         g_logger->set_level(spdlog::level::trace);
         g_logger->flush_on(spdlog::level::info);

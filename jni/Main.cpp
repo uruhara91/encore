@@ -211,6 +211,11 @@ void encore_main_daemon(void) {
         // ===========================
         if (in_game_session && !active_package.empty()) {
             if (active_package != last_game_package) {
+
+                if (!last_game_package.empty()) {
+                    LOGI("Switching games! Resetting previous game: %s", last_game_package.c_str());
+                    ResolutionManager::GetInstance().ResetGameMode(last_game_package);
+                }
                 LOGI("Enter Game: %s", active_package.c_str());
                 
                 auto active_game = game_registry.find_game(active_package); 

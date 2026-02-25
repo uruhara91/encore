@@ -87,9 +87,6 @@ bool CheckBatterySaver() {
             if (fgets(buf, sizeof(buf), pipe_res.stream) != nullptr) {
                 is_saving = (strcasestr(buf, "true") != nullptr);
             }
-            
-            fclose(pipe_res.stream);
-            waitpid(pipe_res.pid, nullptr, 0); 
         }
         return is_saving;
     } catch (...) {

@@ -17,9 +17,10 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 
-#define NOTIFY_TITLE "Encore Tweaks"
-#define LOG_TAG "EncoreTweaks"
+inline constexpr std::string_view NOTIFY_TITLE = "Encore Tweaks";
+inline constexpr std::string_view LOG_TAG = "EncoreTweaks";
 
 #define CONFIG_DIR "/data/adb/.config/encore"
 #define MODPATH "/data/adb/modules/encore"
