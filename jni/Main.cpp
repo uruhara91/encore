@@ -217,6 +217,10 @@ void encore_main_daemon(void) {
 
             if (real_focused_app != active_package) {
                 LOGW("[TRACE-MAIN] Fake resume ketahuan! Membatalkan eksekusi DND & Profil.");
+                
+                char drain_buf[1024];
+                while (fgets(drain_buf, sizeof(drain_buf), log_pipe) != nullptr) {}
+                clearerr(log_pipe);
                 active_package.clear();
                 in_game_session = false;
                 continue; 

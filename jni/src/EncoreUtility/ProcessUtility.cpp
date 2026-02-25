@@ -66,21 +66,26 @@ pid_t GetAppPID_Fast(const std::string& targetPkg) {
 }
 
 std::string GetFocusedPackage() {
-    FILE* pipe = popen("/system/bin/dumpsys window mCurrentFocus", "r");
+    FILE* pipe = popen("/system/bin/dumpsys window | grep -E 'mCurrentFocus|mFocusedApp'", "r");
     if (!pipe) return "";
 
-    char buffer[256];
+    char buffer[512];
     std::string pkg = "";
     while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
         std::string line(buffer);
-        if (line.find("mCurrentFocus") != std::string::npos) {
-            size_t slash_pos = line.find("/");
-            if (slash_pos != std::string::npos) {
-                size_t space_pos = line.rfind(" ", slash_pos);
-                if (space_pos != std::string::npos) {
-                    pkg = line.substr(space_pos + 1, slash_pos - space_pos - 1);
-                    break;
+        size_t slash_pos = line.find("/");
+        if (slash_pos != std::string::npos) {
+            size_t space_pos = line.rfind(" ", slash_pos);
+            if (space_pos != std::string::npos) {
+                pkg = line.substr(space_pos + 1, slash_pos - space_pos - 1);
+                
+                std::string clean_pkg = "";
+                for (char c : pkg) {
+                    if (c != '}' && c != '{' && c != '\n' && c != '\r') clean_pkg += c;
                 }
+                pkg = clean_pkg;
+                
+                if (!pkg.empty()) break;
             }
         }
     }
