@@ -34,15 +34,6 @@
 bool create_lock_file(void);
 
 /**
- * @brief Checks if the /system/bin/dumpsys executable is sane.
- *
- * This function performs a basic sanity check on the dumpsys binary to ensure it has not been
- * tampered with (e.g., emptied by a kill logger module).
- * @return true if the dumpsys binary appears to be sane, false otherwise.
- */
-bool check_dumpsys_sanity(void);
-
-/**
  * @brief Retrieves the UID of a given package name by checking its data directory.
  *
  * @param package_name The package name of the application (e.g., "com.termux").

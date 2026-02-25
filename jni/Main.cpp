@@ -254,8 +254,8 @@ void encore_main_daemon(void) {
 
         bool force_exit = false;
 
-        if (in_game_session && !active_package.empty() && pid_tracker.is_valid()) {
-            if (kill(pid_tracker.get_pid(), 0) != 0) {
+        if (in_game_session && !active_package.empty()) {
+            if (!pid_tracker.is_valid()) {
                 LOGI("Game PID dead (Force Close): %s", active_package.c_str());
                 force_exit = true;
             }
