@@ -231,11 +231,21 @@ void encore_main_daemon(void) {
                 }
 
                 pid_t game_pid = GetAppPID_Fast(active_package);
+                
+                int retries = 0;
+                while (game_pid <= 0 && retries < 10) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    game_pid = GetAppPID_Fast(active_package);
+                    retries++;
+                }
+
                 if (game_pid > 0) {
                     cur_mode = PERFORMANCE_PROFILE;
                     apply_performance_profile(lite_mode, active_package, game_pid);
                     pid_tracker.set_pid(game_pid);
                     LOGI("Profile: Performance (PID: %d)", game_pid);
+                } else {
+                    LOGW("Failed to attach PID for %s even after retries", active_package.c_str());
                 }
 
                 last_game_package = active_package;
