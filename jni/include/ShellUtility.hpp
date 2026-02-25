@@ -26,39 +26,32 @@
 #include <signal.h>
 
 struct PipeResult {
-    FILE* stream;
-    pid_t pid;
+    FILE* stream = nullptr;
+    pid_t pid = -1;
 
-    PipeResult(FILE* s, pid_t p) : stream(s), pid(p) {}
-
-    void close() {
+    ~PipeResult() {
         if (stream) {
             fclose(stream);
-            stream = nullptr;
         }
         if (pid > 0) {
-            // OPTIMASI: Pastikan proses anak mati sebelum di-wait agar tidak blocking!
-            kill(pid, SIGKILL); 
             waitpid(pid, nullptr, 0);
-            pid = -1;
         }
     }
 
-    ~PipeResult() { close(); }
-    
     PipeResult(const PipeResult&) = delete;
     PipeResult& operator=(const PipeResult&) = delete;
-    
+
     PipeResult(PipeResult&& other) noexcept : stream(other.stream), pid(other.pid) {
         other.stream = nullptr;
         other.pid = -1;
     }
+    
+    PipeResult() = default;
 };
 
 inline PipeResult popen_direct(const std::vector<std::string> &args) {
     int pipefd[2];
     
-    // OPTIMASI: Gunakan pipe2 dengan O_CLOEXEC agar child tidak mewarisi fd ini sembarangan
     if (pipe2(pipefd, O_CLOEXEC) == -1) return PipeResult(nullptr, -1);
     
     pid_t pid = fork();
@@ -68,8 +61,7 @@ inline PipeResult popen_direct(const std::vector<std::string> &args) {
         return PipeResult(nullptr, -1);
     }
 
-    if (pid == 0) { // Child
-        // OPTIMASI: Bungkam STDERR agar log daemon Anda bersih jika command gagal
+    if (pid == 0) {
         int devnull = open("/dev/null", O_WRONLY | O_CLOEXEC);
         if (devnull >= 0) {
             dup2(devnull, STDERR_FILENO);
@@ -77,7 +69,7 @@ inline PipeResult popen_direct(const std::vector<std::string> &args) {
         }
 
         ::close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO); // STDOUT masuk ke pipe. (dup2 menghapus O_CLOEXEC, ini yang kita mau)
+        dup2(pipefd[1], STDOUT_FILENO);
         ::close(pipefd[1]);
 
         std::vector<char *> cargs;
@@ -90,7 +82,6 @@ inline PipeResult popen_direct(const std::vector<std::string> &args) {
         _exit(127);
     } 
 
-    // Parent
     ::close(pipefd[1]);
     return PipeResult(fdopen(pipefd[0], "r"), pid);
 }

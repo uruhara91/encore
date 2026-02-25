@@ -7,7 +7,7 @@
 #include <cstring>
 #include <cstdio>
 #include <vector>
-#include <string> // FIX: Tambahkan string explisit
+#include <string>
 
 void ResolutionManager::LoadGameMap(const std::string& configPath) {
     gameRatios.clear();

@@ -6,7 +6,6 @@
 #include <string_view>
 
 void BypassManager::Init() {
-    // FIX: Gunakan .c_str() untuk kompatibilitas dengan access()
     if (access(PATH_CMD.c_str(), F_OK) == 0) {
         targetPath = PATH_CMD;
         mode = 0;
@@ -39,7 +38,6 @@ void BypassManager::SetBypass(bool enable) {
         val = enable ? "1" : "0";
     }
 
-    // val.data() mengambil pointer char, val.size() mengambil ukuran O(1)
     ssize_t bytesWritten = write(fd, val.data(), val.size());
     
     if (bytesWritten == -1) {
@@ -48,6 +46,5 @@ void BypassManager::SetBypass(bool enable) {
         LOGD("BypassManager: Set to %s", enable ? "ON" : "OFF");
     }
 
-    // Selalu tutup file descriptor
     close(fd);
 }

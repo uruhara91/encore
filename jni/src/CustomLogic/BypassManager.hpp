@@ -16,9 +16,8 @@ public:
 private:
     BypassManager() = default;
     std::string targetPath;
-    int mode = 0; // 0: current_cmd, 1: en_power_path
+    int mode = 0;
 
-    // Path Candidates
     const std::string PATH_CMD = "/proc/mtk_battery_cmd/current_cmd";
     const std::string PATH_EN = "/proc/mtk_battery_cmd/en_power_path";
 };

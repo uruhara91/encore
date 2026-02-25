@@ -117,7 +117,7 @@ public:
      * @brief Checks if the currently tracked PID is considered valid and running.
      * @return True if the PID is valid and non-zero, false otherwise.
      */
-    bool is_valid() {
+    [[nodiscard]] bool is_valid() const {
         return pid_valid.load(std::memory_order_acquire) && current_pid.load(std::memory_order_acquire) != 0;
     }
 
@@ -125,7 +125,7 @@ public:
      * @brief Gets the current process ID being tracked.
      * @return The current PID, or 0 if no PID is being tracked or it has terminated.
      */
-    pid_t get_current_pid() {
+    [[nodiscard]] pid_t get_current_pid() const {
         return current_pid.load(std::memory_order_acquire);
     }
 

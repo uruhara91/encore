@@ -20,8 +20,6 @@ private:
     
     std::vector<std::pair<std::string, std::string>> gameRatios;
     
-    // CACHE: Menyimpan status package yang sudah di-apply
-    // Key: PackageName, Value: RatioApplied
     std::unordered_map<std::string, std::string> appliedCache; 
 
     std::string GetRatio(const std::string& pkg);
