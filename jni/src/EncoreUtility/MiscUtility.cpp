@@ -95,10 +95,27 @@ bool CheckBatterySaver() {
 }
 
 void set_do_not_disturb(bool do_not_disturb) {
-    if (do_not_disturb) {
-        systemv("/system/bin/cmd notification set_dnd priority");
-    } else {
-        systemv("/system/bin/cmd notification set_dnd off");
+    pid_t pid = fork();
+    if (pid == 0) {
+        if (fork() == 0) {
+            int devnull = open("/dev/null", O_WRONLY);
+            if (devnull >= 0) {
+                dup2(devnull, STDOUT_FILENO);
+                dup2(devnull, STDERR_FILENO);
+                close(devnull);
+            }
+            if (do_not_disturb) {
+                const char *args[] = {"/system/bin/cmd", "notification", "set_dnd", "priority", NULL};
+                execvp(args[0], (char *const *)args);
+            } else {
+                const char *args[] = {"/system/bin/cmd", "notification", "set_dnd", "off", NULL};
+                execvp(args[0], (char *const *)args);
+            }
+            _exit(127);
+        }
+        _exit(0);
+    } else if (pid > 0) {
+        waitpid(pid, NULL, 0);
     }
 }
 

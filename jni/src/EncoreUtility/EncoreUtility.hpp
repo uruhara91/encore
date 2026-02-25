@@ -74,13 +74,16 @@ void is_kanged(void);
  */
 void set_profiler_env_vars(bool lite_mode);
 
-void run_perfcommon(void);
-void apply_performance_profile(bool lite_mode, std::string game_pkg, pid_t game_pid);
-void apply_balance_profile();
-void apply_powersave_profile();
+std::string GetFocusedPackage();
+
 pid_t GetAppPID_Fast(const std::string& targetPkg);
-bool IsProcessZombie(pid_t pid);
-bool IsPidTrulyForeground(pid_t pid);
-void InitCpuGovernorPaths();
-void SetCpuGovernor(std::string_view governor);
+
 bool CheckBatterySaver();
+bool IsCharging();
+
+void apply_balance_profile();
+void apply_performance_profile(bool lite_mode, std::string game_pkg, pid_t game_pid);
+void apply_powersave_profile();
+void InitCpuGovernorPaths();
+void run_perfcommon(void);
+void SetCpuGovernor(std::string_view governor);

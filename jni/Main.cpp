@@ -211,68 +211,54 @@ void encore_main_daemon(void) {
             
             LOGI("[TRACE-MAIN] Logcat terpicu untuk: {}", active_package);
             
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+            std::string real_focused_app = GetFocusedPackage();
+            LOGI("[TRACE-MAIN] Dumpsys melapor (mCurrentFocus): {}", real_focused_app.empty() ? "UNKNOWN" : real_focused_app);
+
+            if (real_focused_app != active_package) {
+                LOGW("[TRACE-MAIN] Fake resume ketahuan! Membatalkan eksekusi DND & Profil.");
+                active_package.clear();
+                in_game_session = false;
+                continue; 
+            }
+
             pid_t game_pid = GetAppPID_Fast(active_package);
-            for (int i = 0; i < 10 && game_pid <= 0; i++) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            int retries = 0;
+            while (game_pid <= 0 && retries < 5) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 game_pid = GetAppPID_Fast(active_package);
+                retries++;
             }
 
             if (game_pid > 0) {
-                LOGI("[TRACE-MAIN] PID kandidat: {}", game_pid);
+                LOGI("[TRACE-MAIN] PID {} Valid! Eksekusi Game Mode.", game_pid);
                 
-                bool is_stable = true;
-                for (int i = 0; i < 8; i++) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                    
-                    if (kill(game_pid, 0) != 0) {
-                        LOGW("[TRACE-MAIN] PID {} hilang.", game_pid);
-                        is_stable = false; break;
-                    }
-                    if (IsProcessZombie(game_pid)) {
-                        LOGW("[TRACE-MAIN] PID {} Zombie.", game_pid);
-                        is_stable = false; break;
-                    }
-                    if (!IsPidTrulyForeground(game_pid)) {
-                        LOGW("[TRACE-MAIN] PID {} OOM naik.", game_pid);
-                        is_stable = false; break;
-                    }
+                if (!last_game_package.empty()) {
+                    LOGI("Switching games! Resetting previous: {}", last_game_package);
+                    ResolutionManager::GetInstance().ResetGameMode(last_game_package);
+                    set_do_not_disturb(false);
                 }
 
-                if (is_stable) {
-                    LOGI("[TRACE-MAIN] PID {} Stabil! Masuk Game.", game_pid);
-                    
-                    if (!last_game_package.empty()) {
-                        LOGI("Switching games! Resetting previous: {}", last_game_package);
-                        ResolutionManager::GetInstance().ResetGameMode(last_game_package);
-                        set_do_not_disturb(false);
-                    }
+                LOGI("Enter Game: {}", active_package);
+                
+                auto active_game = game_registry.find_game(active_package); 
+                bool lite_mode = (active_game && active_game->lite_mode) || config_store.get_preferences().enforce_lite_mode;
+                bool enable_dnd = (active_game && active_game->enable_dnd);
 
-                    LOGI("Enter Game: {}", active_package);
-                    
-                    auto active_game = game_registry.find_game(active_package); 
-                    bool lite_mode = (active_game && active_game->lite_mode) || config_store.get_preferences().enforce_lite_mode;
-                    bool enable_dnd = (active_game && active_game->enable_dnd);
-
-                    ResolutionManager::GetInstance().ApplyGameMode(active_package);
-                    BypassManager::GetInstance().SetBypass(!lite_mode);
-                    
-                    if (enable_dnd) {
-                        LOGI("[TRACE-MAIN] Memanggil DND ON (Priority)");
-                        set_do_not_disturb(true);
-                    } else {
-                        set_do_not_disturb(false);
-                    }
-
-                    cur_mode = PERFORMANCE_PROFILE;
-                    apply_performance_profile(lite_mode, active_package, game_pid);
-                    pid_tracker.set_pid(game_pid);
-                    
-                    last_game_package = active_package;
+                ResolutionManager::GetInstance().ApplyGameMode(active_package);
+                BypassManager::GetInstance().SetBypass(!lite_mode);
+                
+                if (enable_dnd) {
+                    set_do_not_disturb(true);
                 } else {
-                    LOGW("[TRACE-MAIN] Fake resume dibatalkan untuk: {}", active_package);
-                    active_package.clear();
-                    in_game_session = false;
+                    set_do_not_disturb(false);
                 }
+
+                cur_mode = PERFORMANCE_PROFILE;
+                apply_performance_profile(lite_mode, active_package, game_pid);
+                pid_tracker.set_pid(game_pid);
+                
+                last_game_package = active_package;
             } else {
                 LOGW("[TRACE-MAIN] Gagal dapat PID untuk: {}", active_package);
                 active_package.clear();

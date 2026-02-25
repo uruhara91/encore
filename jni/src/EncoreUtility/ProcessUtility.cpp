@@ -65,49 +65,25 @@ pid_t GetAppPID_Fast(const std::string& targetPkg) {
     return found_pid;
 }
 
-bool IsProcessZombie(pid_t pid) {
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/stat", pid);
-    
-    int fd = open(path, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) return true;
-    
-    char buf[256];
-    ssize_t len = read(fd, buf, sizeof(buf) - 1);
-    close(fd);
-    
-    if (len > 0) {
-        buf[len] = '\0';
-        char* state_ptr = strrchr(buf, ')');
-        if (state_ptr && (state_ptr + 1) < (buf + len)) {
-            char state = *(state_ptr + 2);
-            if (state == 'Z' || state == 'X' || state == 'x' || state == 'T') {
-                LOGD("[ProcessUtility] PID %d terdeteksi Zombie/Dead (State: %c)", pid, state);
-                return true;
+std::string GetFocusedPackage() {
+    FILE* pipe = popen("/system/bin/dumpsys window mCurrentFocus", "r");
+    if (!pipe) return "";
+
+    char buffer[256];
+    std::string pkg = "";
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        std::string line(buffer);
+        if (line.find("mCurrentFocus") != std::string::npos) {
+            size_t slash_pos = line.find("/");
+            if (slash_pos != std::string::npos) {
+                size_t space_pos = line.rfind(" ", slash_pos);
+                if (space_pos != std::string::npos) {
+                    pkg = line.substr(space_pos + 1, slash_pos - space_pos - 1);
+                    break;
+                }
             }
         }
     }
-    return false;
-}
-
-bool IsPidTrulyForeground(pid_t pid) {
-    char path[64];
-    snprintf(path, sizeof(path), "/proc/%d/oom_score_adj", pid);
-    int fd = open(path, O_RDONLY | O_CLOEXEC);
-    if (fd < 0) {
-        LOGE("[TRACE-OOM] Gagal buka oom_score_adj untuk PID %d", pid);
-        return false;
-    }
-    
-    char buf[16];
-    ssize_t len = read(fd, buf, sizeof(buf) - 1);
-    close(fd);
-    
-    if (len > 0) {
-        buf[len] = '\0';
-        int score = atoi(buf);
-        LOGI("[TRACE-OOM] PID %d punya skor OOM: %d", pid, score);
-        return score <= 0; 
-    }
-    return false;
+    pclose(pipe);
+    return pkg;
 }
