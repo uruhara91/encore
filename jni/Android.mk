@@ -12,10 +12,10 @@ LOCAL_STATIC_LIBRARIES := EncoreCLI GameRegistry EncoreConfig EncoreUtility Devi
 
 LOCAL_SRC_FILES := Main.cpp
 
-LOCAL_CPPFLAGS += -fexceptions -std=c++23 -O0
+LOCAL_CPPFLAGS += -fexceptions -fvisibility=hidden -std=c++23 -Oz -flto
 LOCAL_CPPFLAGS += -Wpedantic -Wall -Wextra -Werror -Wformat -Wuninitialized
 
-LOCAL_LDFLAGS += -flto
+LOCAL_LDFLAGS += -Oz -flto -Wl,--gc-sections -Wl,--icf=safe
 
 include $(BUILD_EXECUTABLE)
 
