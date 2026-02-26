@@ -179,7 +179,7 @@ const router = useRouter()
 const gamesStore = useGamesStore()
 const encoreConfigStore = useEncoreConfigStore()
 
-const appSettings = shallowRef({ isEnabled: false, lite_mode: false, enable_dnd: false })
+const appSettings = shallowRef({ isEnabled: false, lite_mode: false, enable_dnd: false, downscale_ratio: "1.0" })
 
 const currentApp = ref({})
 const originalSettings = ref({})
@@ -239,7 +239,7 @@ async function loadAppData(packageName = null) {
   if (!targetPackageName) return router.push('/games')
 
   currentApp.value = {}
-  appSettings.value = { isEnabled: false, lite_mode: false, enable_dnd: false }
+  appSettings.value = { isEnabled: false, lite_mode: false, enable_dnd: false, downscale_ratio: "1.0" }
 
   // First try to get from store
   const fromStore = gamesStore.userApps.find((a) => a.packageName === targetPackageName)
@@ -293,6 +293,7 @@ function toggleAppEnabled() {
     isEnabled: newValue,
     lite_mode: newValue ? appSettings.value.lite_mode : false,
     enable_dnd: newValue ? appSettings.value.enable_dnd : false,
+    downscale_ratio: newValue ? (appSettings.value.downscale_ratio || "1.0") : "1.0",
   }
 }
 

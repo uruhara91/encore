@@ -153,6 +153,10 @@ bool GameRegistry::populate_from_base(const std::string &gamelist, const std::st
         game_obj.AddMember("lite_mode", game.lite_mode, allocator);
         game_obj.AddMember("enable_dnd", game.enable_dnd, allocator);
 
+        rapidjson::Value downscale_val;
+        downscale_val.SetString(game.downscale_ratio.c_str(), allocator);
+        game_obj.AddMember("downscale_ratio", downscale_val, allocator);
+
         rapidjson::Value key(game.package_name.c_str(), allocator);
         doc.AddMember(key, game_obj, allocator);
     }
