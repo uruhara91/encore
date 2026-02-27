@@ -234,7 +234,7 @@ void encore_main_daemon(void) {
                         set_do_not_disturb(false);
                     }
 
-                    auto active_game = game_registry.find_game(active_package);
+                    const auto* active_game = game_registry.find_game_ptr(active_package); 
                     bool lite_mode = (active_game && active_game->lite_mode) || config_store.get_preferences().enforce_lite_mode;
                     bool enable_dnd = (active_game && active_game->enable_dnd);
                     bool enable_bypass = active_game ? active_game->enable_bypass : false;

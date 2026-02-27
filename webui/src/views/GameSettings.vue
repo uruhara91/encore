@@ -375,6 +375,7 @@ async function saveSettings() {
       await gamesStore.updateAppConfig(pkg, {
         lite_mode: appSettings.value.lite_mode,
         enable_dnd: appSettings.value.enable_dnd,
+        enable_bypass: appSettings.value.enable_bypass,
         downscale_ratio: appSettings.value.downscale_ratio
       })
     } else {
