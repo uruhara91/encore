@@ -84,6 +84,7 @@ bool IsCharging();
 void apply_balance_profile();
 void apply_performance_profile(bool lite_mode, const std::string& game_pkg, pid_t game_pid);
 void apply_powersave_profile();
+void ExecuteCmdDirect(const std::vector<const char*>& args);
 void InitCpuGovernorPaths();
 void run_perfcommon(void);
 void SetCpuGovernor(std::string_view governor);

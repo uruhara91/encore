@@ -16,6 +16,5 @@ public:
 
 private:
     ResolutionManager() = default;
-    std::unordered_map<std::string, std::string> appliedCache; 
-    void ExecuteCmdDirect(const std::vector<const char*>& args);
+    std::unordered_map<std::string, std::string> appliedCache;
 };

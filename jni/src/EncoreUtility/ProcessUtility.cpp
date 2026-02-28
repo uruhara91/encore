@@ -20,6 +20,7 @@
 #include <cstdio>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 #include "EncoreUtility.hpp"
 #include <EncoreLog.hpp>
@@ -87,4 +88,24 @@ std::string GetFocusedPackage() {
     }
     pclose(pipe);
     return pkg;
+}
+
+void ExecuteCmdDirect(const std::vector<const char*>& args) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Double-fork untuk mencegah zombie process
+        if (fork() == 0) {
+            int devNull = open("/dev/null", O_RDWR);
+            if (devNull >= 0) {
+                dup2(devNull, STDOUT_FILENO);
+                dup2(devNull, STDERR_FILENO);
+                close(devNull);
+            }
+            execv(args[0], const_cast<char* const*>(args.data()));
+            _exit(127);
+        }
+        _exit(0);
+    } else if (pid > 0) {
+        waitpid(pid, nullptr, 0);
+    }
 }
