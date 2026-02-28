@@ -243,6 +243,18 @@ mediatek_performance() {
 	apply 0 /proc/gpufreq/gpufreq_opp_freq
 	apply -1 /proc/gpufreqv2/fix_target_opp_index
 
+	# Disable Transsion Game Turbo
+	apply 0 /sys/module/xgf/parameters/xgf_enable
+	apply 0 /sys/module/ged/parameters/enable_game_check
+	apply 0 /sys/module/ged/parameters/gx_game_mode
+	
+	# Disable Task Turbo
+	apply 0 /sys/module/task_turbo/parameters/enable
+	
+	# Boost Video Encoder
+	apply 1 /sys/kernel/ged/hal/vblank_boost_mode
+	apply 1 /sys/module/fpsgo/parameters/fstb_force_venc_boost
+
 	if [ $LITE_MODE -eq 0 ]; then
 		# Set min freq via GED
 		if [ -d /proc/gpufreqv2 ]; then
@@ -441,6 +453,13 @@ mediatek_normal() {
 	# GPU Frequency
 	write 0 /proc/gpufreq/gpufreq_opp_freq
 	write -1 /proc/gpufreqv2/fix_target_opp_index
+
+	# Enable Transsion's Specific
+	apply 1 /sys/module/xgf/parameters/xgf_enable
+	apply 1 /sys/module/task_turbo/parameters/enable
+	apply 1 /sys/module/ged/parameters/enable_game_check
+	apply 0 /sys/kernel/ged/hal/vblank_boost_mode
+	apply 0 /sys/module/fpsgo/parameters/fstb_force_venc_boost
 
 	# Reset min freq via GED
 	if [ -d /proc/gpufreqv2 ]; then
