@@ -296,6 +296,7 @@ snapdragon_performance() {
 	[ -z "$ENCORE_DISABLE_DDR_TWEAK" ] && {
 		for path in /sys/class/devfreq/*cpu*-lat \
 			/sys/class/devfreq/*cpu*-bw \
+			/sys/class/devfreq/*l3-cpu* \
 			/sys/class/devfreq/*llccbw* \
 			/sys/class/devfreq/*bus_llcc* \
 			/sys/class/devfreq/*bus_ddr* \
@@ -494,6 +495,7 @@ snapdragon_normal() {
 	[ -z "$ENCORE_DISABLE_DDR_TWEAK" ] && {
 		for path in /sys/class/devfreq/*cpu*-lat \
 			/sys/class/devfreq/*cpu*-bw \
+			/sys/class/devfreq/*l3-cpu* \
 			/sys/class/devfreq/*llccbw* \
 			/sys/class/devfreq/*bus_llcc* \
 			/sys/class/devfreq/*bus_ddr* \
