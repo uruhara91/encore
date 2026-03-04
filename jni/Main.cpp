@@ -69,7 +69,7 @@ void encore_main_daemon(void) {
     pthread_setname_np(pthread_self(), "EncoreLoop");
     InitCpuGovernorPaths();
 
-    FILE* log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity", "r");
+    FILE* log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity battery_saver_mode", "r");
     if (!log_pipe) {
         LOGE("Failed to open logcat pipe!");
         return;
@@ -130,7 +130,24 @@ void encore_main_daemon(void) {
                 }
 
                 do {
-                    std::string_view line(log_buf); 
+                    std::string_view line(log_buf);
+                    if (line.starts_with("[0,0,1")) {
+                        if (cur_mode != POWERSAVE_PROFILE && !in_game_session) {
+                            LOGI("Battery Saver ON terdeteksi dari logcat");
+                            cur_mode = POWERSAVE_PROFILE;
+                            apply_powersave_profile();
+                        }
+                        continue;
+                    } 
+                    else if (line.starts_with("[1,0,0")) {
+                        if (cur_mode != BALANCE_PROFILE && !in_game_session) {
+                            LOGI("Battery Saver OFF terdeteksi dari logcat");
+                            cur_mode = BALANCE_PROFILE;
+                            apply_balance_profile();
+                        }
+                        continue;
+                    }
+
                     size_t start = line.find(',');
                     size_t end = line.find('/');
                     
@@ -255,26 +272,6 @@ void encore_main_daemon(void) {
                     LOGW("[TRACE-MAIN] PID tidak ditemukan untuk {}, membatalkan session.", active_package);
                     active_package.clear();
                     in_game_session = false;
-                }
-            }
-        }
-
-        // ===========================
-        // IDLE CHECK
-        // ===========================
-        if (!in_game_session && ++idle_battery_check_counter >= 6) {
-            battery_saver_state = CheckBatterySaver();
-            idle_battery_check_counter = 0;
-            
-            if (battery_saver_state) {
-                if (cur_mode != POWERSAVE_PROFILE) {
-                    cur_mode = POWERSAVE_PROFILE;
-                    apply_powersave_profile();
-                }
-            } else {
-                if (cur_mode != BALANCE_PROFILE) {
-                    cur_mode = BALANCE_PROFILE;
-                    apply_balance_profile();
                 }
             }
         }
