@@ -62,8 +62,6 @@ void encore_main_daemon(void) {
     bool in_game_session = false;
     bool battery_saver_state = false;
     PIDTracker pid_tracker;
-    
-    int idle_battery_check_counter = 100;
 
     run_perfcommon();
     pthread_setname_np(pthread_self(), "EncoreLoop");
@@ -90,7 +88,7 @@ void encore_main_daemon(void) {
         }
 
         if (!log_pipe) {
-            log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity", "r");
+            log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity battery_saver_mode", "r");
             if (log_pipe) {
                 log_fd = fileno(log_pipe);
                 fcntl(log_fd, F_SETFL, fcntl(log_fd, F_GETFL) | O_NONBLOCK);
