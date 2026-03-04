@@ -130,6 +130,7 @@ void encore_main_daemon(void) {
                 do {
                     std::string_view line(log_buf);
                     if (line.starts_with("[0,0,1")) {
+                        battery_saver_state = true;
                         if (cur_mode != POWERSAVE_PROFILE && !in_game_session) {
                             LOGI("Battery Saver ON terdeteksi dari logcat");
                             cur_mode = POWERSAVE_PROFILE;
@@ -138,6 +139,7 @@ void encore_main_daemon(void) {
                         continue;
                     } 
                     else if (line.starts_with("[1,0,0")) {
+                        battery_saver_state = false;
                         if (cur_mode != BALANCE_PROFILE && !in_game_session) {
                             LOGI("Battery Saver OFF terdeteksi dari logcat");
                             cur_mode = BALANCE_PROFILE;
@@ -215,8 +217,15 @@ void encore_main_daemon(void) {
             pid_tracker.invalidate();
             in_game_session = false;
             
-            idle_battery_check_counter = 100;
-            cur_mode = PERFCOMMON; 
+            if (battery_saver_state) {
+                LOGI("Restore: Memasuki Powersave Mode setelah keluar game");
+                cur_mode = POWERSAVE_PROFILE;
+                apply_powersave_profile();
+            } else {
+                LOGI("Restore: Memasuki Balance Mode setelah keluar game");
+                cur_mode = BALANCE_PROFILE;
+                apply_balance_profile();
+            }
         }
 
         // ===========================
