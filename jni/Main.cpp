@@ -69,19 +69,21 @@ void encore_main_daemon(void) {
         cur_mode = POWERSAVE_PROFILE;
         apply_powersave_profile();
     } else {
+        LOGI("Startup: Memasuki Balance Mode");
         cur_mode = BALANCE_PROFILE;
+        apply_balance_profile();
     }
 
     pthread_setname_np(pthread_self(), "EncoreLoop");
     InitCpuGovernorPaths();
 
-    FILE* log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity battery_saver_mode", "r");
+    UniquePipe log_pipe(popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity battery_saver_mode", "r"));
     if (!log_pipe) {
         LOGE("Failed to open logcat pipe!");
         return;
     }
 
-    int log_fd = fileno(log_pipe);
+    int log_fd = fileno(log_pipe.get());
     fcntl(log_fd, F_SETFL, fcntl(log_fd, F_GETFL) | O_NONBLOCK);
 
     struct pollfd pfd;
@@ -96,9 +98,9 @@ void encore_main_daemon(void) {
         }
 
         if (!log_pipe) {
-            log_pipe = popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity battery_saver_mode", "r");
+            log_pipe.reset(popen("/system/bin/logcat -b events -v raw -s wm_set_resumed_activity am_set_resumed_activity battery_saver_mode", "r"));
             if (log_pipe) {
-                log_fd = fileno(log_pipe);
+                log_fd = fileno(log_pipe.get());
                 fcntl(log_fd, F_SETFL, fcntl(log_fd, F_GETFL) | O_NONBLOCK);
                 pfd.fd = log_fd;
             } else {
@@ -117,20 +119,19 @@ void encore_main_daemon(void) {
         if (ret > 0) {
             if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) {
                 LOGE("Logcat pipe error/hup! Restarting...");
-                if (log_pipe) { pclose(log_pipe); log_pipe = nullptr; }
+                log_pipe.reset();
                 pfd.fd = -1;
                 continue;
             }
 
             if (pfd.revents & POLLIN) {
-                if (fgets(log_buf, sizeof(log_buf), log_pipe) == nullptr) {
-                    if (feof(log_pipe)) {
+                if (fgets(log_buf, sizeof(log_buf), log_pipe.get()) == nullptr) {
+                    if (feof(log_pipe.get())) {
                         LOGE("Logcat pipe EOF! Restarting...");
-                        pclose(log_pipe);
-                        log_pipe = nullptr;
+                        log_pipe.reset();
                         pfd.fd = -1;
                     } else {
-                        clearerr(log_pipe);
+                        clearerr(log_pipe.get());
                     }
                     continue;
                 }
@@ -171,15 +172,15 @@ void encore_main_daemon(void) {
                                 pkg_view.remove_suffix(pkg_view.length() - last - 1);
                             }
                             
-                            if (!pkg_view.empty()) {
+                            if (!pkg_view.empty() && pkg_view != active_package) {
                                 new_fg_app = std::string(pkg_view);
                                 app_changed = true;
                             }
                         }
                     }
-                } while (fgets(log_buf, sizeof(log_buf), log_pipe) != nullptr);
+                } while (fgets(log_buf, sizeof(log_buf), log_pipe.get()) != nullptr);
 
-                clearerr(log_pipe);
+                clearerr(log_pipe.get());
             }
         }
 
@@ -291,8 +292,6 @@ void encore_main_daemon(void) {
             }
         }
     }
-
-    if (log_pipe) pclose(log_pipe);
 }
 
 int run_daemon() {

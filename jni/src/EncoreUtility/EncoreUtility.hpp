@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <string>
 #include <string_view>
+#include <memory>
 #include <unistd.h>
 
 #include <Encore.hpp>
@@ -73,6 +74,18 @@ void is_kanged(void);
  * @param lite_mode Whether lite mode is enabled from gameregistry
  */
 void set_profiler_env_vars(bool lite_mode);
+
+// RAII Deleter for FILE* pointer
+struct PipeDeleter {
+    void operator()(FILE* p) const {
+        if (p) {
+            pclose(p);
+        }
+    }
+};
+
+// Alias for RAII Above
+using UniquePipe = std::unique_ptr<FILE, PipeDeleter>;
 
 std::string GetFocusedPackage();
 
