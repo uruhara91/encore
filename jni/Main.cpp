@@ -60,10 +60,18 @@ void encore_main_daemon(void) {
     std::string last_game_package = "";
     
     bool in_game_session = false;
-    bool battery_saver_state = false;
+    bool battery_saver_state = CheckBatterySaver();
     PIDTracker pid_tracker;
 
     run_perfcommon();
+    if (battery_saver_state) {
+        LOGI("Startup: Battery Saver aktif, memasuki Powersave Mode");
+        cur_mode = POWERSAVE_PROFILE;
+        apply_powersave_profile();
+    } else {
+        cur_mode = BALANCE_PROFILE;
+    }
+
     pthread_setname_np(pthread_self(), "EncoreLoop");
     InitCpuGovernorPaths();
 
