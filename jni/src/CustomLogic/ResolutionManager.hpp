@@ -1,4 +1,6 @@
 #pragma once
+#include <Encore.hpp>
+
 #include <string>
 #include <vector>
 #include <utility>
@@ -13,6 +15,7 @@ public:
 
     void ApplyGameMode(const std::string& packageName, const std::string& ratio);
     void ResetGameMode(const std::string& packageName);
+    void SyncGameModes(const std::vector<EncoreGameList>& current_games);
 
 private:
     ResolutionManager() = default;
